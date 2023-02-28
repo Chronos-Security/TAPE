@@ -6,7 +6,8 @@ APET (Automate the Process of Enumeration in Terminator) is a script used to org
 ### Installation process
 Install required programs:
 ```bash
-sudo apt install git terminator seclists impacket ldapsearch 
+sudo apt install -y git terminator seclists ldap-utils 
+python3 -m pip install impacket
 ```
 Download the script from GitHub
 ```bash
