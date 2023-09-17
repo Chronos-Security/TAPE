@@ -1,6 +1,10 @@
 #!/bin/bash
 
-
+#|##############################|#
+#| Chronos Security             |#
+#| https://chronossec.site      |#
+#| https://github.com/ChronosPK |#
+#|##############################|#
 
 #######################  Install applications  #########################
 # sudo apt install seclists impacket ldapsearch
