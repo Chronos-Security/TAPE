@@ -1,5 +1,5 @@
-# APET
-APET (Automated Process of Enumeration in Terminator) is a script used to organize and automate the pentest process
+# TAPE
+TAPE (Tmux Automated Pentesting Enumeration) is a script used to organize and automate the pentest process
 
 <br>
 
@@ -11,20 +11,19 @@ python3 -m pip install impacket
 ```
 Download the script from GitHub
 ```bash
-git clone https://github.com/ChronosPK/APET.git
-cd APET
-./apet.sh -h
+git clone https://github.com/ChronosPK/TAPE.git
+cd TAPE
+sudo python3 tape.py -h
 ```
 
 <br>
 
 ### Modify the commands
-I added some of basic commands I already use when I encounter common services. <br>
-You can see all of them if you provide the **`-c`** flag to the script. <br>
-If you want to add your own versions, you are my guest! You have the source code!
+I added some basic commands I already use when encountering common services. <br>
+You are free to add your commands for each network protocol.
 
-<br>
-
-### Contact
-If you find this helpful or you have ideas for improvements, you can dm me here:
-[LinkedIn](https://www.linkedin.com/in/radumarin001/)
+### How to run
+```bash
+# sudo privileges since some scripts might need elevated privileges
+sudo python3 tape.py -h
+```
