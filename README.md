@@ -7,7 +7,7 @@ TAPE (Tmux Automated Pentesting Enumeration) is a script used to organize and au
 Install required programs:
 ```bash
 sudo apt install -y git terminator seclists ldap-utils 
-python3 -m pip install impacket
+pip install -r requirements.txt
 ```
 Download the script from GitHub
 ```bash
