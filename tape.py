@@ -136,25 +136,22 @@ def list_commands(commands, variables, service=None):
         if protocol not in commands:
             continue
         actions = commands[protocol]
-        if protocol in SERVICES:
-            ports = ','.join(map(str, SERVICES[protocol]['ports']))
-            transport = SERVICES[protocol]['transport']
-        else:
-            ports = 'N/A'
-            transport = 'N/A'
+        ports = ','.join(map(str, SERVICES.get(protocol, {}).get('ports', ['N/A'])))
+        transport = SERVICES.get(protocol, {}).get('transport', 'N/A')
         for action in actions:
             for subaction in actions[action]:
-                action_subaction_title = f"{protocol} - {ports}/{transport} - {action} - {subaction}"
-                print(f"{ACTION_COLOR}{action_subaction_title}{NC}")
+                action_subaction_title = f"{PROTOCOL_COLOR}{protocol} - {ports}/{transport} - {ACTION_COLOR}{action} - {SUBACTION_COLOR}{subaction}{NC}"
+                print(action_subaction_title)
                 for cmd_group in actions[action][subaction]:
-                    description = cmd_group['description']
-                    cmds = cmd_group['commands']
+                    description = cmd_group.get('description', None)
+                    cmds = cmd_group.get('commands', [])
                     if description:
                         print(f"{YELLOW}# {description}{NC}")
                     for cmd in cmds:
                         cmd_display = format_command(cmd, variables)
                         print(cmd_display)
                     print()
+
 
 def main():
     if len(sys.argv) == 1:
@@ -344,6 +341,23 @@ def main():
             'prompt; mget *',
             'wget -r ftp://USER:PASS@IP/',
             'quote PASV # enter a passive FTP session'
+        ]
+    })
+    COMMANDS['FTP']['Access']['Write Permissions'].append({
+        'description': "Routine checks after connecting",
+        'commands': [
+            'binary; put BINARY_FILE',
+            'ascii; put ASCII_FILE'
+        ]
+    })
+    COMMANDS['FTP']['Access']['Mount Folders'].append({
+        'description': "",
+        'commands': [
+            '# Mount',
+            'mkdir /mnt/ftp',
+            'curlftpfs IP /mnt/ftp/ -o user=USER:PASS',
+            '# Unmount'
+            'fusermount -u ftp'
         ]
     })
 
