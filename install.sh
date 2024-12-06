@@ -74,15 +74,18 @@ ALL_TOOLS=("${CORE_TOOLS[@]}" "${WEB_TOOLS[@]}" "${EXTRA_TOOLS[@]}" "${METASPLOI
 function update_system {
     echo -e "${BLUE}[1/6] Updating system packages...${RESET}"
     sudo apt update -y
-    sudo apt upgrade -y
 }
 
 # Install tools
 function install_tools {
     echo -e "${BLUE}[2/6] Installing tools and dependencies...${RESET}"
     for tool in "${ALL_TOOLS[@]}"; do
-        echo -e "${GREEN}Installing: $tool${RESET}"
-        sudo apt install -y "$tool"
+        if ! command -v $tool &>/dev/null; then
+            echo -e "${GREEN}Installing: $tool${RESET}"
+            sudo apt install -y "$tool"
+        else
+            echo -e "${GREEN}$tool is already installed.${RESET}"
+        fi
     done
 }
 
@@ -99,8 +102,32 @@ function setup_metasploit {
 # Install Python tools
 function setup_python {
     echo -e "${BLUE}[4/6] Setting up Python tools...${RESET}"
-    pip3 install --upgrade pip
-    pip3 install ldap3 dnspython impacket requests
+
+    # Check for virtual environment support
+    if ! python3 -m ensurepip --upgrade; then
+        echo -e "${YELLOW}Installing virtual environment tools...${RESET}"
+        sudo apt install -y python3-venv
+    fi
+
+    # Create a virtual environment
+    if [ ! -d "tape_env" ]; then
+        echo -e "${BLUE}Creating a virtual environment for TAPE...${RESET}"
+        python3 -m venv tape_env
+    fi
+
+    # Activate the virtual environment
+    echo -e "${GREEN}Activating virtual environment...${RESET}"
+    source tape_env/bin/activate
+
+    # Install required Python packages
+    python_packages=("ldap3" "dnspython" "impacket" "requests")
+    for package in "${python_packages[@]}"; do
+        echo -e "${GREEN}Installing Python package: $package${RESET}"
+        pip install "$package"
+    done
+
+    echo -e "${GREEN}Python tools setup completed.${RESET}"
+    deactivate
 }
 
 # Check for updates in the repository

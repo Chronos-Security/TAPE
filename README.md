@@ -1,105 +1,147 @@
-# **TAPE (Tmux Automated Pentesting Enumeration)**
+# TAPE - Tmux Automated Pentesting Enumeration
 
-TAPE is a streamlined tool designed to organize and automate the reconnaissance and enumeration phases of penetration testing. Leveraging the power of `tmux`, TAPE simplifies command execution, output organization, and workflow management for pentesters. It's flexible, efficient, and highly customizable to fit your unique methodology.
-
----
-
-## **Features**
-
-- Automates reconnaissance and enumeration for various services and protocols.
-- Organizes output in neatly structured tmux panes and windows for easier multitasking.
-- Offers the flexibility to list commands, execute them selectively, or customize workflows.
-- Supports commonly encountered protocols and services, with predefined commands for convenience.
-- Allows users to easily add, modify, or extend command sets to match their preferences.
+TAPE is a powerful pentesting enumeration tool that automates reconnaissance and enumeration tasks, leveraging the flexibility of tmux to provide an efficient workflow for penetration testers. TAPE simplifies the process of running and managing multiple commands across a variety of services and protocols, all within a clean and customizable environment.
 
 ---
 
-## **Installation**
+## Features
 
-Ensure your system has the required dependencies installed:
+- **Automated Reconnaissance:** Automatically scans networks and extracts open ports.
+- **Service Enumeration:** Supports multiple protocols and services, with predefined commands for various scenarios.
+- **Command Listing:** View all commands globally or filter them by service or action.
+- **Flexible Execution Options:** Run commands interactively or list them without execution.
+- **Tmux Integration:** Automatically organizes tasks in tmux windows, categorized by protocol and action.
 
-### **Prerequisites**
-```bash
-sudo apt update
-sudo apt install -y git tmux seclists ldap-utils nmap hydra gobuster feroxbuster wfuzz curl rustscan
-pip install -r requirements.txt
-```
+---
 
-### Clone the Repository
-```bash
-git clone https://github.com/ChronosPK/TAPE.git
-cd TAPE
-sudo python3 tape.py -h
-```
+## Installation
+
+### Prerequisites
+Ensure you have the following tools installed on your system:
+- Python 3.8+
+- `pip` (Python package manager)
+- `tmux` (Linux only, for terminal multiplexing)
+
+### Installation Steps
+
+1. **Clone the Repository**
+    ```bash
+    git clone https://github.com/ChronosPK/TAPE.git
+    cd TAPE
+    ```
+
+2. **Run the Installation Script**
+    Execute the `install.sh` script to automatically install dependencies and set up TAPE:
+    ```bash
+    sudo ./install.sh
+    ```
+
+    This script performs the following actions:
+    - Updates system packages.
+    - Installs required tools and dependencies (e.g., `tmux`, `nmap`, `gobuster`).
+    - Sets up Python packages required for TAPE.
+    - Adds TAPE to your system PATH for global usage.
+
+3. **Verify Installation**
+    After running the script, verify that TAPE is installed:
+    ```bash
+    tape -h
+    ```
+
+---
 
 ## Usage
-TAPE is designed to be simple yet powerful. Below are some common use cases:
 
-### Basic Usage
+### Command-line Arguments
+
 ```bash
-# Display help menu
-sudo python3 tape.py -h
+usage: tape.py [-h] [-n NET] [-i IP] [-d DOMAIN] [-x] [-l] [-s SERVICE] [-q] [-f]
+
+TAPE - Tmux Automated Pentesting Enumeration
+
+options:
+  -h, --help                     Show this help message and exit
+  -n NET, --net NET              Set target network (e.g., 192.168.1.0/24)
+  -i IP, --ip IP                 Set target IP address
+  -d DOMAIN, --domain DOMAIN     Set target domain
+  -x, --execute                  Execute the enumeration process
+  -l, --list-commands            List all available commands
+  -s SERVICE, --service SERVICE  Specify a service to list commands for
+  -q, --quiet                    Suppress command output (commands are echoed by default)
+  -f, --force-recon              Force reconnaissance scans even if already done
 ```
 
-### List All Commands
-```bash
-sudo python3 tape.py -l
-```
+### Examples
 
-### Execute Enumeration
-```bash
-# Replace the placeholders IP, DOMAIN, or NET with your target specifics
-sudo python3 tape.py -i <IP> -x
+1. **List All Commands**
+    ```bash
+    python tape.py -l
+    ```
 
-sudo python3 tape.py -i 10.10.11.14 -x
-```
+2. **Run Reconnaissance on a Target IP**
+    ```bash
+    python tape.py -i 192.168.1.1 -x
+    ```
 
-### List Commands for Specific Service
-```bash
-sudo python3 tape.py -l -s <SERVICE>
+3. **Specify a Service for Enumeration**
+    ```bash
+    python tape.py -s FTP -i 192.168.1.1
+    ```
 
-sudo python3 tape.py -l -s recon
-sudo python3 tape.py -l -s ftp
-sudo python3 tape.py -l -s ssh
-```
+4. **Quiet Mode**
+    Suppress command output during execution:
+    ```bash
+    python tape.py -i 192.168.1.1 -x -q
+    ```
 
-## Customization
+5. **Combine IP and Domain for Verification**
+    ```bash
+    python tape.py -i 192.168.1.1 -d example.com
+    ```
 
-TAPE comes preloaded with useful commands for commonly encountered protocols and services. 
-You can freely add, modify, or remove commands to match your personal pentesting workflow.
+6. **Force Reconnaissance**
+    ```bash
+    python tape.py -i 192.168.1.1 -f
+    ```
 
-### To Modify Commands:
-1. Open tape.py in your favorite text editor.
-2. Locate the COMMANDS dictionary.
-3. Add or edit the command sets for specific services, grouped by category.
+---
 
-## Example Scenarios
+## Why Use TAPE?
 
-### Reconnaissance
+TAPE provides a structured and streamlined approach to pentesting enumeration, addressing common challenges faced by security professionals:
+- **Efficiency:** Automates repetitive tasks, saving time and effort.
+- **Organization:** Leverages tmux to keep processes organized in separate windows.
+- **Flexibility:** Allows users to customize commands and choose specific actions.
+- **Cross-Platform Compatibility:** Works on Linux and Windows systems with appropriate dependencies.
 
-Run an all-TCP scan followed by detailed service enumeration:
-```bash
-sudo python3 tape.py -i 192.168.1.1 -x
-```
+---
 
-### Protocol-Specific Enumeration
+## Supported Protocols and Services
 
-List and run commands for FTP enumeration:
-```bash
-sudo python3 tape.py -s FTP -x
-```
+TAPE includes predefined commands for the following:
+- **Reconnaissance:** Nmap, Rustscan, Autorecon, etc.
+- **FTP:** Anonymous login checks, brute force, directory listing.
+- **HTTP/HTTPS:** Directory fuzzing, file fuzzing, parameter fuzzing.
+- **SMB:** Share enumeration, user enumeration.
+- **DNS:** Zone transfers, DNS enumeration.
+- **MySQL:** Database brute force, SQL queries.
+
+---
 
 ## Contribution
 
-**Contributions are welcome!**
-Feel free to fork the repository, add your favorite commands, or improve functionality. 
-Submit a pull request when you're ready, and let's make TAPE even better together.
+We welcome contributions from the community! If you have ideas for improvements or additional features, feel free to fork the repository and submit a pull request.
 
+---
 
-## Disclaimer
+## License
 
-TAPE is intended for authorized testing and educational purposes only. 
-Unauthorized use of this tool against systems you do not own or have explicit permission to test is illegal and unethical. 
-Use responsibly.
+TAPE is released under the MIT License. See the LICENSE file for details.
 
-### Happy Pentesting!
+---
+
+## Contact
+
+For questions or support, please open an issue on the GitHub repository or contact the Chronos Security team.
+
+Happy Hacking!
