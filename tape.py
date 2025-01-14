@@ -4,8 +4,8 @@
 """
 TAPE - Tmux Automated Pentesting Enumeration
 Chronos Security
-https://chronossec.site
-https://github.com/ChronosPK
+https://chronos-security.ro
+https://github.com/Chronos-Security
 """
 
 import os
