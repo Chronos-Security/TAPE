@@ -1,7 +1,7 @@
 #!/bin/bash
 # TAPE Installation Script
-# Chronos Security
-# https://github.com/ChronosPK/TAPE
+# https://chronos-security.ro
+# https://github.com/Chronos-Security/TAPE
 
 # Exit on error
 set -e
