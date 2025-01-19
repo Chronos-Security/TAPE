@@ -141,14 +141,15 @@ function setup_tape {
     SCRIPT_SOURCE=$(realpath tape.py)
     SCRIPT_DEST="/usr/local/bin/tape"
 
-    # Create a symbolic link pointing to the current script
-    if [ -L "$SCRIPT_DEST" ]; then
-        echo -e "${YELLOW}Updating existing TAPE symlink...${RESET}"
-        sudo ln -sf "$SCRIPT_SOURCE" "$SCRIPT_DEST"
-    else
-        echo -e "${GREEN}Creating new TAPE symlink...${RESET}"
-        sudo ln -s "$SCRIPT_SOURCE" "$SCRIPT_DEST"
+    # Remove existing file or symlink if it exists
+    if [ -e "$SCRIPT_DEST" ]; then
+        echo -e "${YELLOW}Removing existing TAPE file or symlink...${RESET}"
+        sudo rm -f "$SCRIPT_DEST"
     fi
+
+    # Create a symbolic link pointing to the current script
+    echo -e "${GREEN}Creating new TAPE symlink...${RESET}"
+    sudo ln -s "$SCRIPT_SOURCE" "$SCRIPT_DEST"
 
     # Ensure the script is executable
     chmod +x "$SCRIPT_SOURCE"
