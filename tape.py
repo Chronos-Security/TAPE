@@ -246,7 +246,7 @@ def main():
             'description': "nmap",
             'commands': [
                 "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
-                "cat recon/nmap.init | grep '/.*open' | cut -d '/' -f 1 | tr '\\n' ',' | sed 's/,$//g' > recon/ports",
+                """cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
                 "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
             ]
         },
@@ -284,7 +284,7 @@ def main():
             "description": "Extract ports and run all-TCP scan",
             "commands": [
                 "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init",
-                "cat recon/nmap.init | grep '/.*open' | cut -d '/' -f 1 | tr '\\n' ',' | sed 's/,$//g' > recon/ports",
+                """cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
                 "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"
             ]
         },
