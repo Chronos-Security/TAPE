@@ -89,7 +89,6 @@ SERVICES = {
     "MONGODB": {"ports": [27017], "transport": "TCP"},
     "WINRM": {"ports": [5985, 5986], "transport": "TCP"},
     # More will be added in the future
-    # CSCTF{I_bet_y0u_d1dn_t_know_A11_t0Ols}
 }
 
 # -----------------------------
