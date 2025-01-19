@@ -1,7 +1,13 @@
 #!/bin/bash
-# TAPE Installation Script
-# https://chronos-security.ro
-# https://github.com/Chronos-Security/TAPE
+
+
+################################################
+# TAPE Installation Script                     #
+# TAPE - Tmux Automated Pentesting Enumeration #
+# Chronos Security                             #
+# https://chronos-security.ro                  #
+# https://github.com/Chronos-Security          #
+################################################
 
 # Exit on error
 set -e

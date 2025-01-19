@@ -55,53 +55,58 @@ Ensure you have the following tools installed on your system:
 ### Command-line Arguments
 
 ```bash
-usage: tape.py [-h] [-n NET] [-i IP] [-d DOMAIN] [-x] [-l] [-s SERVICE] [-q] [-f]
+tape
+
+usage: tape [-h] [-e] [-l] [-ls] [-s SERVICE] [-i IP] [-d DOMAIN] [-n NET] [-q] [-x] [-f] [-u]
 
 TAPE - Tmux Automated Pentesting Enumeration
 
 options:
-  -h, --help                     Show this help message and exit
-  -n NET, --net NET              Set target network (e.g., 192.168.1.0/24)
+  -h, --help                     show this help message and exit
+  -e, --env                      Create the environment with appropriate files and directories
+  -l, --list-commands            List all available commands
+  -ls, --list-services           List all available services with their default ports and transport protocols
+  -s SERVICE, --service SERVICE  Specify a service to list commands for
   -i IP, --ip IP                 Set target IP address
   -d DOMAIN, --domain DOMAIN     Set target domain
-  -x, --execute                  Execute the enumeration process
-  -l, --list-commands            List all available commands
-  -s SERVICE, --service SERVICE  Specify a service to list commands for
+  -n NET, --net NET              Set target network (e.g., 192.168.1.0/24)
   -q, --quiet                    Suppress command output (commands are echoed by default)
+  -x, --execute                  Execute the enumeration process
   -f, --force-recon              Force reconnaissance scans even if already done
+  -u, --update                   Update TAPE to the latest version
 ```
 
 ### Examples
 
 1. **List All Commands**
     ```bash
-    python tape.py -l
+    tape -l
     ```
 
 2. **Run Reconnaissance on a Target IP**
     ```bash
-    python tape.py -i 192.168.1.1 -x
+    tape -i 192.168.1.1 -x
     ```
 
 3. **Specify a Service for Enumeration**
     ```bash
-    python tape.py -s FTP -i 192.168.1.1
+    tape -s FTP -i 192.168.1.1
     ```
 
 4. **Quiet Mode**
     Suppress command output during execution:
     ```bash
-    python tape.py -i 192.168.1.1 -x -q
+    tape -i 192.168.1.1 -x -q
     ```
 
 5. **Combine IP and Domain for Verification**
     ```bash
-    python tape.py -i 192.168.1.1 -d example.com
+    tape -i 192.168.1.1 -d example.com
     ```
 
 6. **Force Reconnaissance**
     ```bash
-    python tape.py -i 192.168.1.1 -f
+    tape -i 192.168.1.1 -f
     ```
 
 ---
