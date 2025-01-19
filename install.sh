@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 ################################################
 # TAPE Installation Script                     #
 # TAPE - Tmux Automated Pentesting Enumeration #
@@ -29,44 +28,44 @@ echo -e "${GREEN}Installing necessary tools and dependencies...${RESET}"
 
 # Networking and enumeration tools
 CORE_TOOLS=(
-    "nmap"          # Network mapper
-    "hydra"         # Brute-force tool
-    "curl"          # Data transfer tool
-    "wget"          # File retriever
-    "ftp"           # FTP client
-    "netcat"        # Networking utility
-    "enum4linux"    # SMB enumeration tool
-    "dnsrecon"      # DNS enumeration tool
-    "dnsutils"      # DNS utilities
-    "smbclient"     # SMB client
-    "masscan"       # Fast port scanner
-    "rustscan"      # Efficient port scanner
+    "nmap"
+    "hydra"
+    "curl"
+    "wget"
+    "ftp"
+    "netcat"
+    "enum4linux"
+    "dnsrecon"
+    "dnsutils"
+    "smbclient"
+    "masscan"
+    "rustscan"
 )
 
 # Web fuzzing and exploitation tools
 WEB_TOOLS=(
-    "gobuster"      # Directory brute-forcing
-    "wfuzz"         # Web fuzzing tool
-    "ffuf"          # Fast web fuzzer
-    "feroxbuster"   # Directory brute-forcing
+    "gobuster"
+    "wfuzz"
+    "ffuf"
+    "feroxbuster"
 )
 
 # Additional utilities
 EXTRA_TOOLS=(
-    "tmux"          # Terminal multiplexer
-    "python3"       # Python 3
-    "python3-pip"   # Python 3 package manager
-    "build-essential" # Compilers and utilities
-    "libssl-dev"    # SSL libraries
-    "seclists"      # Wordlists
-    "ldap-utils"    # LDAP utilities
+    "tmux"
+    "python3"
+    "python3-pip"
+    "build-essential"
+    "libssl-dev"
+    "seclists"
+    "ldap-utils"
 )
 
 # Metasploit dependencies
 METASPLOIT=(
-    "postgresql"    # Database for Metasploit
-    "ruby"          # Required for Metasploit
-    "libsqlite3-dev" # SQLite3 libraries
+    "postgresql"
+    "ruby"
+    "libsqlite3-dev"
 )
 
 # All tools combined
@@ -86,7 +85,7 @@ function update_system {
 function install_tools {
     echo -e "${BLUE}[2/6] Installing tools and dependencies...${RESET}"
     for tool in "${ALL_TOOLS[@]}"; do
-        if ! command -v $tool &>/dev/null; then
+        if ! command -v "$tool" &>/dev/null; then
             echo -e "${GREEN}Installing: $tool${RESET}"
             sudo apt install -y "$tool"
         else
@@ -136,9 +135,30 @@ function setup_python {
     deactivate
 }
 
+# Add TAPE to system PATH using a symlink
+function setup_tape {
+    echo -e "${BLUE}[5/6] Adding TAPE to system PATH...${RESET}"
+    SCRIPT_SOURCE=$(realpath tape.py)
+    SCRIPT_DEST="/usr/local/bin/tape"
+
+    # Create a symbolic link pointing to the current script
+    if [ -L "$SCRIPT_DEST" ]; then
+        echo -e "${YELLOW}Updating existing TAPE symlink...${RESET}"
+        sudo ln -sf "$SCRIPT_SOURCE" "$SCRIPT_DEST"
+    else
+        echo -e "${GREEN}Creating new TAPE symlink...${RESET}"
+        sudo ln -s "$SCRIPT_SOURCE" "$SCRIPT_DEST"
+    fi
+
+    # Ensure the script is executable
+    chmod +x "$SCRIPT_SOURCE"
+
+    echo -e "${GREEN}TAPE is now accessible globally as 'tape'.${RESET}"
+}
+
 # Check for updates in the repository
 function update_repository {
-    echo -e "${BLUE}[5/6] Checking for updates in the repository...${RESET}"
+    echo -e "${BLUE}[6/6] Checking for updates in the repository...${RESET}"
     if git rev-parse --git-dir > /dev/null 2>&1; then
         git fetch origin
         LOCAL=$(git rev-parse HEAD)
@@ -153,29 +173,6 @@ function update_repository {
         echo -e "${RED}Not a git repository. Please clone the repository from GitHub.${RESET}"
         exit 1
     fi
-}
-
-# Add TAPE to system PATH
-function setup_tape {
-    echo -e "${BLUE}[6/6] Adding TAPE to system PATH...${RESET}"
-    SCRIPT_SOURCE="tape.py"
-    SCRIPT_DEST="/usr/local/bin/tape"
-
-    # Make the script executable
-    chmod +x "$SCRIPT_SOURCE"
-
-    # Copy the script to /usr/local/bin
-    if [ -f "$SCRIPT_DEST" ]; then
-        echo -e "${YELLOW}Updating existing TAPE installation...${RESET}"
-        sudo cp "$SCRIPT_SOURCE" "$SCRIPT_DEST"
-    else
-        sudo cp "$SCRIPT_SOURCE" "$SCRIPT_DEST"
-    fi
-
-    # Ensure the script is executable
-    sudo chmod +x "$SCRIPT_DEST"
-
-    echo -e "${GREEN}TAPE is now accessible globally as 'tape'.${RESET}"
 }
 
 # -----------------------------
