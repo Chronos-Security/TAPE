@@ -185,7 +185,7 @@ def list_commands(commands, variables, service=None):
         for action in actions:
             for subaction in actions[action]:
                 action_subaction_title = f"{protocol} - {ports}/{transport} - {action} - {subaction}"
-                cprint(action_subaction_title, "black", "on_light_cyan", attrs=["bold"])
+                cprint(action_subaction_title, "red", "on_cyan", attrs=["bold", "dark"])
                 for cmd_group in actions[action][subaction]:
                     description = cmd_group.get('description', None)
                     cmds = cmd_group.get('commands', [])
