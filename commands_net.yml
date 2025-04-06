@@ -1,0 +1,14 @@
+RECON:
+  Single Host:
+    nmap:
+      - description: "Extract ports and run all-TCP scan"
+        commands:
+          - "nmap -Pn -p- -v -T4 --max-retries 5 IP -oN RECON_DIR/IP.init"
+          - "cat RECON_DIR/IP.init | grep -E \"^[0-9]+/tcp.*(open|filtered|closed)\" | awk '{print $1}' | cut -d '/' -f 1 | tr '\n' ',' | sed 's/,$//g' > RECON_DIR/IP.ports"
+          - "sudo nmap -Pn -sS -sV -n -v -A -T4 -p $(cat RECON_DIR/IP.ports) IP -oN RECON_DIR/IP.alltcp"
+      - description: "Perform OS detection with Nmap"
+        commands:
+          - "sudo nmap -O -Pn -p- -T4 --max-retries 4 -v IP -oN RECON_DIR/IP.os"
+      - description: "Vulnerability scan with Nmap"
+        commands:
+          - "nmap --script vulners -Pn -sC -sV -v -A -T4 -p- --max-retries 5 --open IP -oN RECON_DIR/IP.vuln"
