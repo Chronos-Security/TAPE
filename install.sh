@@ -39,7 +39,6 @@ CORE_TOOLS=(
     "dnsutils"
     "smbclient"
     "masscan"
-    "rustscan"
 )
 
 # Web fuzzing and exploitation tools
@@ -77,13 +76,13 @@ ALL_TOOLS=("${CORE_TOOLS[@]}" "${WEB_TOOLS[@]}" "${EXTRA_TOOLS[@]}" "${METASPLOI
 
 # Update package lists
 function update_system {
-    echo -e "${BLUE}[1/6] Updating system packages...${RESET}"
+    echo -e "${BLUE}[1/7] Updating system packages...${RESET}"
     sudo apt update -y
 }
 
 # Install tools
 function install_tools {
-    echo -e "${BLUE}[2/6] Installing tools and dependencies...${RESET}"
+    echo -e "${BLUE}[2/7] Installing tools and dependencies...${RESET}"
     for tool in "${ALL_TOOLS[@]}"; do
         if ! command -v "$tool" &>/dev/null; then
             echo -e "${GREEN}Installing: $tool${RESET}"
@@ -94,9 +93,23 @@ function install_tools {
     done
 }
 
+# Install RustScan using Cargo
+function install_rustscan {
+    echo -e "${BLUE}[3/7] Installing Rust and RustScan...${RESET}"
+    
+    if ! command -v cargo &>/dev/null; then
+        echo -e "${YELLOW}Rust not found. Installing Rust...${RESET}"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source $HOME/.cargo/env
+    fi
+    
+    echo -e "${GREEN}Installing RustScan using Cargo...${RESET}"
+    cargo install rustscan
+}
+
 # Set up Metasploit
 function setup_metasploit {
-    echo -e "${BLUE}[3/6] Setting up Metasploit Framework...${RESET}"
+    echo -e "${BLUE}[4/7] Setting up Metasploit Framework...${RESET}"
     if ! command -v msfconsole &>/dev/null; then
         curl https://raw.githubusercontent.com/rapid7/metasploit-framework/master/msfupdate | sudo bash
     else
@@ -106,7 +119,7 @@ function setup_metasploit {
 
 # Install Python tools
 function setup_python {
-    echo -e "${BLUE}[4/6] Setting up Python tools...${RESET}"
+    echo -e "${BLUE}[5/7] Setting up Python tools...${RESET}"
 
     # Check for virtual environment support
     if ! python3 -m ensurepip --upgrade; then
@@ -137,7 +150,7 @@ function setup_python {
 
 # Add TAPE to system PATH using a symlink
 function setup_tape {
-    echo -e "${BLUE}[5/6] Adding TAPE to system PATH...${RESET}"
+    echo -e "${BLUE}[6/7] Adding TAPE to system PATH...${RESET}"
     SCRIPT_SOURCE=$(realpath tape.py)
     SCRIPT_DEST="/usr/local/bin/tape"
 
@@ -159,7 +172,7 @@ function setup_tape {
 
 # Check for updates in the repository
 function update_repository {
-    echo -e "${BLUE}[6/6] Checking for updates in the repository...${RESET}"
+    echo -e "${BLUE}[7/7] Checking for updates in the repository...${RESET}"
     if git rev-parse --git-dir > /dev/null 2>&1; then
         git fetch origin
         LOCAL=$(git rev-parse HEAD)
@@ -183,6 +196,7 @@ function update_repository {
 update_system
 install_tools
 setup_metasploit
+install_rustscan
 setup_python
 update_repository
 setup_tape
